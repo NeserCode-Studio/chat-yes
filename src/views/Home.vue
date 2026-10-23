@@ -280,7 +280,7 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 		</section>
 
 		<Transition name="nextchat-drawer">
-			<template v-if="conversation && inspectorOpen">
+			<div v-if="conversation && inspectorOpen" class="nextchat-inspector-layer">
 				<button
 					type="button"
 					class="nextchat-inspector-backdrop"
@@ -293,7 +293,7 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 						@close="inspectorOpen = false"
 					/>
 				</div>
-			</template>
+			</div>
 		</Transition>
 
 		<ConfirmDialog

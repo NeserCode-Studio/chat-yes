@@ -6,6 +6,7 @@ import { useThemeStore, useI18nStore } from "@/store"
 import { useLocalStorage } from "@vueuse/core"
 import { ref, onMounted, onScopeDispose, watch } from "vue"
 import { getCurrentWindow } from "@tauri-apps/api/window"
+import { isTauri } from "@tauri-apps/api/core"
 import { WindowUtils } from "@/lib/window.utils"
 import { createLogger } from "@/lib/logger"
 
@@ -13,18 +14,21 @@ const log = createLogger("Titlebar")
 const i18n = useI18nStore()
 const theme = useThemeStore()
 
-const currentWindow = getCurrentWindow()
+const isDesktop = isTauri()
+const currentWindow = isDesktop ? getCurrentWindow() : null
 
 const alwaysOnTop = useLocalStorage("app-always-on-top", false)
 const maximized = ref(false)
 
 watch(alwaysOnTop, (v) => {
+  if (!currentWindow) return
   void currentWindow.setAlwaysOnTop(v)
 })
 
 /* 同步最大化状态：覆盖双击标题栏、系统快捷键、外部 resize 等场景 */
 let unlisten: (() => void) | undefined
 onMounted(async () => {
+  if (!currentWindow) return
   void currentWindow.setAlwaysOnTop(alwaysOnTop.value)
   maximized.value = await currentWindow.isMaximized().catch(() => false)
   const fn = await currentWindow.onResized(async () => {
@@ -37,15 +41,16 @@ onScopeDispose(() => unlisten?.())
 function handleOperation(operation: "minimize" | "close") {
   switch (operation) {
     case "minimize":
-      void currentWindow.minimize()
+      if (currentWindow) void currentWindow.minimize()
       break
     case "close":
-      void WindowUtils.windowsQuit()
+      if (isDesktop) void WindowUtils.windowsQuit()
       break
   }
 }
 
 async function toggleMaximize(): Promise<void> {
+  if (!currentWindow) return
   const isMax = await currentWindow.isMaximized().catch(() => false)
   if (isMax) {
     await currentWindow.unmaximize()
@@ -55,6 +60,11 @@ async function toggleMaximize(): Promise<void> {
   const next = await currentWindow.isMaximized().catch(() => false)
   log.debug("toggleMaximize ->", next ? "maximized" : "restored")
   maximized.value = next
+}
+
+async function toggleAlwaysOnTop(): Promise<void> {
+  if (!currentWindow) return
+  await currentWindow.setAlwaysOnTop(alwaysOnTop.value)
 }
 </script>
 
@@ -68,7 +78,7 @@ async function toggleMaximize(): Promise<void> {
 			<TooltipTrigger as-child>
 				<span
 					:class="alwaysOnTop ? 'titlebar-op is-pinned' : 'titlebar-op'"
-					@mouseup="() => { alwaysOnTop = !alwaysOnTop; void currentWindow.setAlwaysOnTop(!alwaysOnTop) }"
+					@mouseup="() => { alwaysOnTop = !alwaysOnTop; void toggleAlwaysOnTop() }"
 				>
 					<Paperclip class="titlebar-op-icon" />
 				</span>

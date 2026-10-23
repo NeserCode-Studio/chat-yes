@@ -1097,12 +1097,20 @@ body,
   background: var(--muted);
 }
 
+.nextchat-inspector-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
 .nextchat-inspector-backdrop {
   position: absolute;
   inset: 0;
   z-index: 20;
   background: rgb(0 0 0 / 32%);
   backdrop-filter: blur(2px);
+  pointer-events: auto;
 }
 
 .nextchat-inspector-drawer {
@@ -1115,6 +1123,7 @@ body,
   border-left: 1px solid var(--border);
   background: var(--card);
   box-shadow: -12px 0 30px rgb(0 0 0 / 12%);
+  pointer-events: auto;
 }
 
 .nextchat-inspector-drawer .run-inspector {
@@ -1352,6 +1361,7 @@ body,
 }
 
 .nextchat-settings-row.is-stack {
+  flex-direction: column;
   align-items: flex-start;
 }
 
@@ -1547,6 +1557,8 @@ body,
   .nextchat-brand__copy,
   .nextchat-sidebar__search,
   .nextchat-sidebar__new span,
+  .nextchat-sidebar__empty strong,
+  .nextchat-sidebar__empty p,
   .nextchat-session__copy,
   .nextchat-session__delete,
   .nextchat-sidebar__footer span {

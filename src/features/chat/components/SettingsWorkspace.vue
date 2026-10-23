@@ -190,10 +190,12 @@ function discardChangesAnd(action: () => void): void {
 }
 
 function addAgent(): void {
-	discardChangesAnd(() => {
+	const action = () => {
 		store.addAgent()
 		activeTab.value = "agents"
-	})
+	}
+	if (hasDraftChanges.value) discardChangesAnd(action)
+	else action()
 }
 
 function deleteAgent(): void {

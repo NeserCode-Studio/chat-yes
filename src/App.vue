@@ -3,6 +3,7 @@ import { computed, onMounted, onScopeDispose, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { Toaster } from "vue-sonner"
 import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window"
+import { isTauri } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 
 import Titlebar from "@/components/frameworks/Titlebar.vue"
@@ -22,23 +23,28 @@ const dialogs = useDialogStore()
 const route = useRoute()
 const router = useRouter()
 
+const isDesktop = isTauri()
+
 /* 检测当前窗口 */
-const currentLabel = getCurrentWindow().label
+const currentLabel = isDesktop ? getCurrentWindow().label : ""
 const isTrayWindow = computed(() => currentLabel === "tray")
 const colorSchemeClass = computed(() => (theme.theme === "dark" ? "dark" : "light"))
 
 /* 应用就绪钩子：主窗口显示并聚焦。
    托盘窗口跳过。 */
-const $windowMain = new WindowUtils("main")
-lifecycle.register({
-  id: "window.render-focus",
-  stage: "ready",
-  once: true,
-  run: () => {
-    if (getCurrentWindow().label === "tray") return
-    return $windowMain.renderFocus()
-  },
-})
+let $windowMain: WindowUtils | null = null
+if (isDesktop) {
+  $windowMain = new WindowUtils("main")
+  lifecycle.register({
+    id: "window.render-focus",
+    stage: "ready",
+    once: true,
+    run: () => {
+      if (getCurrentWindow().label === "tray") return
+      return $windowMain?.renderFocus()
+    },
+  })
+}
 
 /* 生命周期阶段只触发一次（Vue 下无 StrictMode 问题，但保持幂等） */
 const fired = ref(false)
@@ -52,7 +58,7 @@ onMounted(() => {
 /* 跨窗口事件监听（主窗口） */
 let unlisteners: Array<() => void> = []
 onMounted(async () => {
-  if (currentLabel === "tray") return
+  if (!isDesktop || currentLabel === "tray") return
 
   const unlistenPopup = await listen<{ x: number; y: number }>(
     "tray-popup",
@@ -91,7 +97,7 @@ onScopeDispose(() => {
 })
 
 /* 托盘窗口失焦自动隐藏 */
-if (currentLabel === "tray") {
+if (isDesktop && currentLabel === "tray") {
   void (async () => {
     const win = getCurrentWindow()
     const fn = await win.onFocusChanged(({ payload: focused }) => {
