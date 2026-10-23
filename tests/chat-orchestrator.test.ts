@@ -190,6 +190,46 @@ describe("conversation orchestration", () => {
 		).toEqual(["I need one more review.", "Review complete."])
 	})
 
+	it("uses the last completed turn to decide whether another round runs", async () => {
+		completeChatMock.mockImplementation(async (options) => ({
+			content:
+				options.model === "final-model"
+					? "Task complete."
+					: `Needs review from ${options.model}.<conversation_continue>`,
+			usage: {
+				promptTokens: 8,
+				completionTokens: 3,
+				totalTokens: 11,
+			},
+			latencyMs: 70,
+		}))
+		const { store, agent, conversation } = prepareConversation()
+		const second = store.addAgent()
+		const finalAgent = store.addAgent()
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.model = "first-model"
+		agent.maxTokens = 100
+		second.endpoint = "http://localhost:1234/v1"
+		second.model = "second-model"
+		second.maxTokens = 100
+		finalAgent.endpoint = "http://localhost:1234/v1"
+		finalAgent.model = "final-model"
+		finalAgent.maxTokens = 100
+		conversation.roundLimit = 3
+		conversation.requestLimit = 9
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+			targetAgentIds: [agent.id, second.id, finalAgent.id],
+		})
+
+		expect(result.status).toBe("completed")
+		expect(completeChatMock).toHaveBeenCalledTimes(3)
+		expect(
+			completeChatMock.mock.calls.map((call) => call[0].model)
+		).toEqual(["first-model", "second-model", "final-model"])
+	})
+
 	it("discards a signal-only turn and keeps its usage", async () => {
 		completeChatMock.mockResolvedValue({
 			content: "<conversation_continue>",

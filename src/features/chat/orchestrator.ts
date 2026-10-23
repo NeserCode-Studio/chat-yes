@@ -324,7 +324,7 @@ export async function runConversation(
 						store.removeMessage(conversationId, message.id)
 						store.addConversationUsage(conversationId, usage)
 						requests += 1
-						continueRequested ||= requestsContinuation
+						continueRequested = requestsContinuation
 						continue
 					}
 
@@ -337,7 +337,7 @@ export async function runConversation(
 					store.addConversationUsage(conversationId, usage)
 					store.persistMessages(conversationId)
 					requests += 1
-					continueRequested ||= requestsContinuation
+					continueRequested = requestsContinuation
 				} catch (error) {
 					if (options.signal.aborted) {
 						store.setMessageStatus(conversationId, message.id, "stopped")

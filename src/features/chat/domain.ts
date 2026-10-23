@@ -42,7 +42,8 @@ const PRESET_PROMPTS: Record<AgentPreset, string> = {
 const TURN_CONTROL_PROMPT = [
 	"Conversation continuation rules:",
 	`- If another participant or a follow-up turn is required, end your reply with ${CONVERSATION_CONTINUE_TAG}.`,
-	"- Otherwise omit that marker; the run will end after the current round.",
+	"- If your reply completes the requested work, do not add the marker; the run will end after the current round.",
+	"- Do not use the marker merely to acknowledge, thank, or close the task.",
 	"- Never explain the marker; the application removes it from the visible reply.",
 ].join("\n")
 
