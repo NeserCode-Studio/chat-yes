@@ -13,6 +13,13 @@ import {
 } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useDialogStore } from "@/store"
 import { aggregateMessageUsage } from "../domain"
@@ -21,6 +28,7 @@ import { useChatStore } from "../store"
 import type {
 	AgentPermissions,
 	Conversation,
+	ConversationMode,
 } from "../types"
 import { validateAgent } from "../validation"
 import AgentAvatar from "./AgentAvatar.vue"
@@ -43,6 +51,11 @@ const activeTab = ref<InspectorTab>("agents")
 const memoryDraft = ref("")
 
 const selectedAgent = computed(() => store.selectedAgent)
+const modeLabel = computed(() =>
+	props.conversation.mode === "relay"
+		? t.value("inspector.modeRelay")
+		: t.value("inspector.modeRoundtable")
+)
 const budgetPercent = computed(() => {
 	const budget = Math.max(1, props.conversation.tokenBudget)
 	return Math.min(
@@ -186,7 +199,7 @@ function formatDuration(value: number): string {
 					<div>
 						<p class="section-title">{{ t("workspace.participants", { count: conversation.participantIds.length }) }}</p>
 						<p class="section-copy">
-							{{ conversation.mode }} · {{ t("workspace.maxRounds", { count: conversation.roundLimit }) }}
+							{{ modeLabel }} · {{ t("workspace.maxRounds", { count: conversation.roundLimit }) }}
 						</p>
 					</div>
 					<Button variant="ghost" size="icon" class="size-7" @click="dialogs.openSettings()">
@@ -302,6 +315,25 @@ function formatDuration(value: number): string {
 					<p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
 						{{ t("inspector.runLimits") }}
 					</p>
+					<label class="inspector-control">
+						<span>{{ t("inspector.mode") }}</span>
+						<Select
+							:model-value="conversation.mode"
+							@update:model-value="conversation.mode = $event as ConversationMode"
+						>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="roundtable">
+									{{ t("inspector.modeRoundtable") }}
+								</SelectItem>
+								<SelectItem value="relay">
+									{{ t("inspector.modeRelay") }}
+								</SelectItem>
+							</SelectContent>
+						</Select>
+					</label>
 					<label class="inspector-control">
 						<span>{{ t("inspector.roundLimit") }}</span>
 						<Input

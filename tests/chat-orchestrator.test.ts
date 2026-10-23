@@ -393,4 +393,164 @@ describe("conversation orchestration", () => {
 			completeChatMock.mock.calls.map((call) => call[0].model)
 		).toEqual(["first-model", "second-model", "first-model"])
 	})
+
+	it("routes the next roundtable speaker from an agent mention", async () => {
+		const { store, agent, conversation } = prepareConversation()
+		const second = store.addAgent()
+		const third = store.addAgent()
+		agent.name = "First"
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.model = "first-model"
+		agent.maxTokens = 100
+		second.name = "Second"
+		second.endpoint = "http://localhost:1234/v1"
+		second.model = "second-model"
+		second.maxTokens = 100
+		third.name = "Third"
+		third.endpoint = "http://localhost:1234/v1"
+		third.model = "third-model"
+		third.maxTokens = 100
+		conversation.participantIds.push(second.id, third.id)
+		conversation.roundLimit = 1
+		conversation.requestLimit = 3
+		completeChatMock.mockImplementation(async (options) => ({
+			content:
+				options.model === "first-model"
+					? "Passing this to @Third."
+					: `Response from ${options.model}`,
+			usage: {
+				promptTokens: 8,
+				completionTokens: 3,
+				totalTokens: 11,
+			},
+			latencyMs: 70,
+		}))
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result.status).toBe("completed")
+		expect(
+			completeChatMock.mock.calls.map((call) => call[0].model)
+		).toEqual(["first-model", "third-model", "second-model"])
+	})
+
+	it("keeps explicit user mention order ahead of agent routing", async () => {
+		const { store, agent, conversation } = prepareConversation()
+		const second = store.addAgent()
+		const third = store.addAgent()
+		agent.name = "First"
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.model = "first-model"
+		agent.maxTokens = 100
+		second.name = "Second"
+		second.endpoint = "http://localhost:1234/v1"
+		second.model = "second-model"
+		second.maxTokens = 100
+		third.name = "Third"
+		third.endpoint = "http://localhost:1234/v1"
+		third.model = "third-model"
+		third.maxTokens = 100
+		conversation.participantIds.push(second.id, third.id)
+		conversation.roundLimit = 1
+		conversation.requestLimit = 3
+		completeChatMock.mockImplementation(async (options) => ({
+			content:
+				options.model === "first-model"
+					? "Passing this to @Third."
+					: `Response from ${options.model}`,
+			usage: {
+				promptTokens: 8,
+				completionTokens: 3,
+				totalTokens: 11,
+			},
+			latencyMs: 70,
+		}))
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+			targetAgentIds: [agent.id, second.id, third.id],
+		})
+
+		expect(result.status).toBe("completed")
+		expect(
+			completeChatMock.mock.calls.map((call) => call[0].model)
+		).toEqual(["first-model", "second-model", "third-model"])
+	})
+
+	it("applies automatic reply permissions to unmentioned participants", async () => {
+		const { store, agent, conversation } = prepareConversation()
+		const second = store.addAgent()
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.model = "first-model"
+		agent.maxTokens = 100
+		second.endpoint = "http://localhost:1234/v1"
+		second.model = "second-model"
+		second.maxTokens = 100
+		second.permissions.autoReply = false
+		conversation.participantIds.push(second.id)
+		conversation.roundLimit = 1
+		conversation.requestLimit = 2
+		completeChatMock.mockResolvedValue({
+			content: "First response.",
+			usage: {
+				promptTokens: 8,
+				completionTokens: 3,
+				totalTokens: 11,
+			},
+			latencyMs: 70,
+		})
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result.status).toBe("completed")
+		expect(completeChatMock).toHaveBeenCalledTimes(1)
+		expect(completeChatMock.mock.calls[0][0].model).toBe("first-model")
+	})
+
+	it("follows mention handoffs and stops in relay mode", async () => {
+		const { store, agent, conversation } = prepareConversation()
+		const second = store.addAgent()
+		const third = store.addAgent()
+		agent.name = "First"
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.model = "first-model"
+		agent.maxTokens = 100
+		second.name = "Second"
+		second.endpoint = "http://localhost:1234/v1"
+		second.model = "second-model"
+		second.maxTokens = 100
+		third.name = "Third"
+		third.endpoint = "http://localhost:1234/v1"
+		third.model = "third-model"
+		third.maxTokens = 100
+		conversation.participantIds.push(second.id, third.id)
+		conversation.mode = "relay"
+		conversation.roundLimit = 2
+		conversation.requestLimit = 6
+		completeChatMock.mockImplementation(async (options) => ({
+			content:
+				options.model === "first-model"
+					? "Over to @Third."
+					: "Task complete.",
+			usage: {
+				promptTokens: 8,
+				completionTokens: 3,
+				totalTokens: 11,
+			},
+			latencyMs: 70,
+		}))
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result.status).toBe("completed")
+		expect(
+			completeChatMock.mock.calls.map((call) => call[0].model)
+		).toEqual(["first-model", "third-model"])
+	})
 })

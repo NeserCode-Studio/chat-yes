@@ -8,6 +8,7 @@ import type {
 	ChatApiMessage,
 	ChatMessage,
 	CompletionUsage,
+	ConversationMode,
 	TokenUsage,
 } from "./types"
 import { AGENT_ACCENTS, EMPTY_USAGE } from "./types"
@@ -46,6 +47,13 @@ const TURN_CONTROL_PROMPT = [
 	"- Do not use the marker merely to acknowledge, thank, or close the task.",
 	"- Never explain the marker; the application removes it from the visible reply.",
 ].join("\n")
+
+const GROUP_MODE_PROMPTS: Record<ConversationMode, string> = {
+	roundtable:
+		"Group mode: roundtable. Each participant may speak once per round. Mention another participant with @Name to bring them in next; otherwise keep the configured order.",
+	relay:
+		"Group mode: relay. Hand off the conversation by mentioning one or more participants with @Name. If no handoff is needed, finish without mentioning another participant.",
+}
 
 export function createAgentProfile(index = 0): AgentProfile {
 	const now = Date.now()
@@ -158,10 +166,42 @@ export function stripTurnControlSignal(content: string): string {
 	).trim()
 }
 
+export function parseAgentMentionIds(
+	content: string,
+	agents: AgentProfile[]
+): string[] {
+	const agentsByName = new Map(
+		agents
+			.filter((agent) => agent.name.trim())
+			.map((agent) => [agent.name, agent])
+	)
+	if (!agentsByName.size) return []
+
+	const escapedNames = [...agentsByName.keys()]
+		.sort((left, right) => right.length - left.length)
+		.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+	const pattern = new RegExp(
+		`@(${escapedNames.join("|")})(?=\\s|$|[，。,.!?、：:；;])`,
+		"g"
+	)
+
+	return [...content.matchAll(pattern)]
+		.map((match) => agentsByName.get(match[1])?.id ?? "")
+		.filter(Boolean)
+}
+
+export function parseUniqueAgentMentionIds(
+	content: string,
+	agents: AgentProfile[]
+): string[] {
+	return [...new Set(parseAgentMentionIds(content, agents))]
+}
+
 export function buildAgentContext(
 	agent: AgentProfile,
 	participants: AgentProfile[],
-	messages: ChatMessage[]
+	messages: ChatMessage[],
+	mode: ConversationMode = "roundtable"
 ): ChatApiMessage[] {
 	const memory = agent.permissions.readMemory
 		? agent.memories
@@ -187,6 +227,7 @@ export function buildAgentContext(
 		roster ? `Other participants: ${roster}.` : "",
 		memory ? `Your durable memory:\n${memory}` : "",
 		"Treat other participants' messages as discussion input. Do not claim actions you cannot perform.",
+		GROUP_MODE_PROMPTS[mode],
 		TURN_CONTROL_PROMPT,
 	]
 		.filter(Boolean)

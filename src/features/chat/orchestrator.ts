@@ -4,6 +4,7 @@ import {
 	CONVERSATION_CONTINUE_TAG,
 	estimateApiContentTokens,
 	estimateTokens,
+	parseUniqueAgentMentionIds,
 	stripTurnControlSignal,
 	TURN_CONTROL_TAGS,
 	usageFromCompletion,
@@ -41,9 +42,7 @@ function addEvent(
 function canRunAgent(
 	agent: AgentProfile,
 	conversation: Conversation,
-	round: number,
-	participantIndex: number,
-	explicitlyMentioned: boolean,
+	isExplicitTurn: boolean,
 	runRequests: number
 ): string | null {
 	if (!agent.enabled) {
@@ -53,8 +52,6 @@ function canRunAgent(
 	const validation = validateAgent(agent)
 	if (!validation.valid) return validation.reasons.join("; ")
 
-	const isExplicitTurn =
-		round === 1 && (participantIndex === 0 || explicitlyMentioned)
 	if (!isExplicitTurn && !agent.permissions.autoReply) {
 		return `${agent.name} does not have automatic reply permission`
 	}
@@ -68,6 +65,36 @@ function canRunAgent(
 		return "Conversation token budget reached"
 	}
 	return null
+}
+
+function planNextTurnIds(
+	mode: Conversation["mode"],
+	pendingTurnIds: string[],
+	mentionedTurnIds: string[],
+	completedTurnIds: Set<string>,
+	preserveExplicitOrder: boolean
+): string[] {
+	const availableMentions = mentionedTurnIds.filter(
+		(id) => !completedTurnIds.has(id)
+	)
+
+	if (mode === "relay" && !preserveExplicitOrder) {
+		return availableMentions
+	}
+	if (preserveExplicitOrder) {
+		const missingMentions = availableMentions.filter(
+			(id) => !pendingTurnIds.includes(id)
+		)
+		return [...pendingTurnIds, ...missingMentions]
+	}
+
+	return [
+		...availableMentions,
+		...pendingTurnIds.filter(
+			(id) =>
+				!completedTurnIds.has(id) && !availableMentions.includes(id)
+		),
+	]
 }
 
 function fallbackUsage(
@@ -163,11 +190,17 @@ export async function runConversation(
 		}
 	}
 
-	const turnAgentIds =
-		options.targetAgentIds?.filter(Boolean).length
-			? options.targetAgentIds.filter(Boolean)
-			: conversation.participantIds
-	const participants = turnAgentIds
+	const requestedTurnIds = options.targetAgentIds?.filter(Boolean) ?? []
+	const hasExplicitTargets = requestedTurnIds.length > 0
+	const initialTurnIds = hasExplicitTargets
+		? requestedTurnIds
+		: conversation.participantIds
+	const explicitTurnIds = new Set(
+		hasExplicitTargets
+			? initialTurnIds
+			: initialTurnIds.slice(0, 1)
+	)
+	const participants = [...new Set(initialTurnIds)]
 		.map((id) => store.getAgent(id))
 		.filter((agent): agent is AgentProfile => Boolean(agent))
 	if (!participants.length) {
@@ -186,32 +219,38 @@ export async function runConversation(
 	}
 
 	let requests = 0
+	let firstTurnPending = true
 	store.setConversationStatus(conversationId, "running")
 
 	try {
 		for (let round = 1; round <= conversation.roundLimit; round += 1) {
 			let continueRequested = false
-			for (
-				let participantIndex = 0;
-				participantIndex < participants.length;
-				participantIndex += 1
-			) {
+			const completedTurnIds = new Set<string>()
+			let pendingTurnIds =
+				conversation.mode === "relay" && !hasExplicitTargets
+					? initialTurnIds.slice(0, 1)
+					: [...initialTurnIds]
+
+			while (pendingTurnIds.length) {
 				if (options.signal.aborted) {
 					store.setConversationStatus(conversationId, "stopped")
 					return { status: "stopped", requests }
 				}
 
-				const agent = participants[participantIndex]
+				const agentId = pendingTurnIds.shift()
+				if (!agentId) continue
+				const agent = store.getAgent(agentId)
+				if (!agent) continue
+				const isFirstTurn = firstTurnPending
+				firstTurnPending = false
 				const blocked = canRunAgent(
 					agent,
 					conversation,
-					round,
-					participantIndex,
-					turnAgentIds.includes(agent.id),
+					round === 1 && explicitTurnIds.has(agent.id),
 					requests
 				)
 				if (blocked) {
-					if (round === 1 && participantIndex === 0) {
+					if (isFirstTurn) {
 						addEvent(store, conversationId, blocked)
 						store.setConversationStatus(conversationId, "error")
 						return { status: "error", requests, message: blocked }
@@ -225,7 +264,8 @@ export async function runConversation(
 				const context = buildAgentContext(
 					agent,
 					participants,
-					store.getMessages(conversationId)
+					store.getMessages(conversationId),
+					conversation.mode
 				)
 				const estimatedInputTokens = context.reduce(
 					(total, item) =>
@@ -319,12 +359,31 @@ export async function runConversation(
 						.toLowerCase()
 						.includes(CONVERSATION_CONTINUE_TAG)
 					const visibleContent = stripTurnControlSignal(result.content)
+					const mentionedTurnIds = parseUniqueAgentMentionIds(
+						visibleContent,
+						participants
+					).filter((id) => id !== agent.id)
+
+					completedTurnIds.add(agent.id)
+					pendingTurnIds = planNextTurnIds(
+						conversation.mode,
+						pendingTurnIds,
+						mentionedTurnIds,
+						completedTurnIds,
+						hasExplicitTargets
+					)
+					continueRequested =
+						requestsContinuation &&
+						!(
+							conversation.mode === "relay" &&
+							!hasExplicitTargets &&
+							mentionedTurnIds.length === 0
+						)
 
 					if (!visibleContent) {
 						store.removeMessage(conversationId, message.id)
 						store.addConversationUsage(conversationId, usage)
 						requests += 1
-						continueRequested = requestsContinuation
 						continue
 					}
 
@@ -337,7 +396,6 @@ export async function runConversation(
 					store.addConversationUsage(conversationId, usage)
 					store.persistMessages(conversationId)
 					requests += 1
-					continueRequested = requestsContinuation
 				} catch (error) {
 					if (options.signal.aborted) {
 						store.setMessageStatus(conversationId, message.id, "stopped")

@@ -6,6 +6,8 @@ import {
 	createMemoryEntry,
 	estimateApiContentTokens,
 	estimateTokens,
+	parseAgentMentionIds,
+	parseUniqueAgentMentionIds,
 	usageFromCompletion,
 } from "../src/features/chat/domain"
 import type { ChatMessage } from "../src/features/chat/types"
@@ -111,6 +113,21 @@ describe("agent context construction", () => {
 		})
 	})
 
+	it("includes the active group mode in the system context", () => {
+		const agent = createAgentProfile()
+
+		const relayContext = buildAgentContext(agent, [agent], [], "relay")
+		const roundtableContext = buildAgentContext(
+			agent,
+			[agent],
+			[],
+			"roundtable"
+		)
+
+		expect(relayContext[0].content).toContain("Group mode: relay")
+		expect(roundtableContext[0].content).toContain("Group mode: roundtable")
+	})
+
 	it("keeps the newest messages inside the context budget", () => {
 		const agent = createAgentProfile()
 		agent.contextWindow = 1100
@@ -170,6 +187,26 @@ describe("agent context construction", () => {
 		expect(estimateApiContentTokens(context[1].content)).toBeGreaterThan(
 			estimateTokens("Describe this image")
 		)
+	})
+})
+
+describe("agent mention parsing", () => {
+	it("preserves occurrence order and supports CJK punctuation", () => {
+		const first = createAgentProfile(0)
+		first.name = "Builder"
+		const second = createAgentProfile(1)
+		second.name = "Reviewer"
+		const text = "@Builder，请先实现；然后 @Reviewer: 复核，最后 @Builder。"
+
+		expect(parseAgentMentionIds(text, [first, second])).toEqual([
+			first.id,
+			second.id,
+			first.id,
+		])
+		expect(parseUniqueAgentMentionIds(text, [first, second])).toEqual([
+			first.id,
+			second.id,
+		])
 	})
 })
 

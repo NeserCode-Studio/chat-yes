@@ -13,6 +13,7 @@ import {
 import { ScrollArea, ScrollAreaInner } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { useAppearanceStore } from "@/store/appearance"
+import { parseAgentMentionIds } from "../domain"
 import { createId } from "../ids"
 import { useChatI18n } from "../i18n"
 import type {
@@ -228,35 +229,12 @@ function chooseMenu(index = menuIndex.value): void {
 	}
 }
 
-function parseMentions(text: string): string[] {
-	const agentsByName = new Map(
-		props.agents
-			.filter((agent) => agent.name)
-			.map((agent) => [agent.name, agent])
-	)
-	if (!agentsByName.size) return []
-
-	const escapedNames = [...agentsByName.keys()]
-		.sort((left, right) => right.length - left.length)
-		.map((name) =>
-			name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-		)
-	const pattern = new RegExp(
-		`@(${escapedNames.join("|")})(?=\\s|$|[，。,.!?])`,
-		"g"
-	)
-
-	return [...text.matchAll(pattern)]
-		.map((match) => agentsByName.get(match[1])?.id ?? "")
-		.filter(Boolean)
-}
-
 function send(): void {
 	if (!canSend.value) return
 	const value = content.value.trim()
 	emit("send", {
 		content: value,
-		mentions: parseMentions(value),
+		mentions: parseAgentMentionIds(value, props.agents),
 		attachments: [...images.value],
 	})
 	content.value = ""

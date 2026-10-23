@@ -61,6 +61,7 @@ function normalizeConversation(conversation: Conversation): Conversation {
 	)
 	return {
 		...conversation,
+		mode: conversation.mode === "relay" ? "relay" : "roundtable",
 		roundLimit,
 		requestLimit: Math.max(
 			conversation.requestLimit ?? 0,
