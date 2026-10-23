@@ -1584,6 +1584,46 @@ body,
   line-height: 1.45;
 }
 
+.nextchat-preset-picker {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.nextchat-preset-picker__trigger {
+  height: 30px;
+  min-width: 132px;
+  font-size: 12px;
+}
+
+.nextchat-presets {
+  display: flex;
+  flex-direction: column;
+}
+
+.nextchat-presets__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.nextchat-presets__header h3 {
+  color: var(--foreground);
+  font-size: 16px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.nextchat-presets__header p {
+  margin-top: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .nextchat-settings-row {
   display: flex;
   min-height: 58px;

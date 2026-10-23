@@ -233,6 +233,9 @@ async function executeOnce(
 				model: options.model,
 				messages: options.messages satisfies ChatApiMessage[],
 				temperature: options.temperature,
+				top_p: options.topP,
+				presence_penalty: options.presencePenalty,
+				frequency_penalty: options.frequencyPenalty,
 				max_tokens: options.maxTokens,
 				stream: options.streaming,
 				...(options.streaming && includeUsageOption

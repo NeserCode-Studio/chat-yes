@@ -46,6 +46,9 @@ export interface AgentProfile {
 	systemPrompt: string
 	preset: AgentPreset
 	temperature: number
+	topP: number
+	presencePenalty: number
+	frequencyPenalty: number
 	maxTokens: number
 	contextWindow: number
 	timeoutMs: number
@@ -141,6 +144,9 @@ export interface CompletionOptions {
 	model: string
 	messages: ChatApiMessage[]
 	temperature: number
+	topP: number
+	presencePenalty: number
+	frequencyPenalty: number
 	maxTokens: number
 	timeoutMs: number
 	retryCount: number
@@ -148,6 +154,52 @@ export interface CompletionOptions {
 	signal?: AbortSignal
 	onDelta?: (delta: string) => void
 	onReasoningDelta?: (delta: string) => void
+}
+
+export type AgentSettingsPresetGroup =
+	| "connection"
+	| "behavior"
+	| "generation"
+	| "memory"
+	| "permissions"
+
+export interface ConnectionPresetValues {
+	endpoint: string
+}
+
+export interface BehaviorPresetValues {
+	preset: AgentPreset
+	temperature: number
+	streaming: boolean
+	topP: number
+	presencePenalty: number
+	frequencyPenalty: number
+}
+
+export interface GenerationPresetValues {
+	maxTokens: number
+	contextWindow: number
+	retryCount: number
+}
+
+export type MemoryPresetValues = AgentMemoryEntry[]
+
+export type PermissionsPresetValues = AgentPermissions
+
+export type AgentSettingsPresetValues =
+	| ConnectionPresetValues
+	| BehaviorPresetValues
+	| GenerationPresetValues
+	| MemoryPresetValues
+	| PermissionsPresetValues
+
+export interface AgentSettingsPreset {
+	id: string
+	name: string
+	group: AgentSettingsPresetGroup
+	values: AgentSettingsPresetValues
+	createdAt: number
+	updatedAt: number
 }
 
 export interface RunOptions {

@@ -29,6 +29,13 @@ export const DEFAULT_PERMISSIONS: AgentPermissions = {
 	writeMemory: false,
 }
 
+export const DEFAULT_SAMPLING = {
+	temperature: 0.7,
+	topP: 1,
+	presencePenalty: 0,
+	frequencyPenalty: 0,
+}
+
 const PRESET_PROMPTS: Record<AgentPreset, string> = {
 	balanced:
 		"Respond with clear reasoning, state assumptions, and distinguish facts from guesses.",
@@ -67,7 +74,10 @@ export function createAgentProfile(index = 0): AgentProfile {
 		model: "",
 		systemPrompt: PRESET_PROMPTS.balanced,
 		preset: "balanced",
-		temperature: 0.7,
+		temperature: DEFAULT_SAMPLING.temperature,
+		topP: DEFAULT_SAMPLING.topP,
+		presencePenalty: DEFAULT_SAMPLING.presencePenalty,
+		frequencyPenalty: DEFAULT_SAMPLING.frequencyPenalty,
 		maxTokens: 1200,
 		contextWindow: 16000,
 		timeoutMs: 90000,

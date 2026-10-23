@@ -1,7 +1,7 @@
 import { defineStore } from "pinia"
 import { ref } from "vue"
 
-export type SettingsSection = "application" | "ai" | "conversation"
+export type SettingsSection = "application" | "ai" | "conversation" | "presets"
 
 /**
  * 弹窗开关全局状态（对齐 rt 的 SettingsDialogContext）。

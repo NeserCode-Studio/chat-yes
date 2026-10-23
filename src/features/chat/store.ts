@@ -3,6 +3,7 @@ import { defineStore } from "pinia"
 import {
 	createAgentProfile,
 	createMemoryEntry,
+	DEFAULT_SAMPLING,
 	emptyUsage,
 	estimateTokens,
 	sanitizePreview,
@@ -13,11 +14,13 @@ import {
 	loadAgents,
 	loadConversations,
 	loadMessages,
+	loadPresets,
 	removeMessages,
 	saveActiveConversationId,
 	saveAgents,
 	saveConversations,
 	saveMessages,
+	savePresets,
 } from "./persistence"
 import {
 	readStoredSecret,
@@ -26,6 +29,9 @@ import {
 } from "./secret-storage"
 import type {
 	AgentProfile,
+	AgentSettingsPreset,
+	AgentSettingsPresetGroup,
+	AgentSettingsPresetValues,
 	ChatMessage,
 	Conversation,
 	ConversationStatus,
@@ -40,6 +46,10 @@ function normalizeAgent(agent: AgentProfile): AgentProfile {
 	return {
 		...agent,
 		enabled: agent.enabled ?? true,
+		temperature: agent.temperature ?? DEFAULT_SAMPLING.temperature,
+		topP: agent.topP ?? DEFAULT_SAMPLING.topP,
+		presencePenalty: agent.presencePenalty ?? DEFAULT_SAMPLING.presencePenalty,
+		frequencyPenalty: agent.frequencyPenalty ?? DEFAULT_SAMPLING.frequencyPenalty,
 		permissions: {
 			shareConversation: permissions?.shareConversation ?? true,
 			autoReply: permissions?.autoReply ?? true,
@@ -103,6 +113,7 @@ function createConversation(
 
 export const useChatStore = defineStore("chat-workspace", () => {
 	const agents = ref<AgentProfile[]>(normalizeAgents(loadAgents()))
+	const presets = ref<AgentSettingsPreset[]>(loadPresets())
 	const conversations = ref<Conversation[]>(
 		loadConversations().map(normalizeConversation)
 	)
@@ -182,6 +193,7 @@ export const useChatStore = defineStore("chat-workspace", () => {
 		}
 
 		watch(agents, saveAgents, { deep: true })
+		watch(presets, savePresets, { deep: true })
 		watch(conversations, saveConversations, { deep: true })
 		watch(activeConversationId, saveActiveConversationId)
 
@@ -352,6 +364,37 @@ export const useChatStore = defineStore("chat-workspace", () => {
 		agent.updatedAt = Date.now()
 	}
 
+	function savePreset(
+		group: AgentSettingsPresetGroup,
+		name: string,
+		values: AgentSettingsPresetValues
+	): AgentSettingsPreset {
+		const trimmed = name.trim()
+		const existing = presets.value.find(
+			(preset) => preset.group === group && preset.name === trimmed
+		)
+		if (existing) {
+			existing.values = values
+			existing.updatedAt = Date.now()
+			return existing
+		}
+		const now = Date.now()
+		const preset: AgentSettingsPreset = {
+			id: createId("preset"),
+			name: trimmed,
+			group,
+			values,
+			createdAt: now,
+			updatedAt: now,
+		}
+		presets.value.push(preset)
+		return preset
+	}
+
+	function deletePreset(presetId: string): void {
+		presets.value = presets.value.filter((preset) => preset.id !== presetId)
+	}
+
 	async function setAgentSecret(agentId: string, secret: string): Promise<void> {
 		const value = secret.trim()
 		if (value) {
@@ -482,6 +525,7 @@ export const useChatStore = defineStore("chat-workspace", () => {
 
 	return {
 		agents,
+		presets,
 		conversations,
 		messagesByConversation,
 		activeConversationId,
@@ -509,6 +553,8 @@ export const useChatStore = defineStore("chat-workspace", () => {
 		updateConversationSettings,
 		addMemory,
 		removeMemory,
+		savePreset,
+		deletePreset,
 		setAgentSecret,
 		getAgentSecret,
 		addMessage,

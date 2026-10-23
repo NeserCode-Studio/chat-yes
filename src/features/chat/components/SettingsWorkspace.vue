@@ -9,6 +9,7 @@ import {
 	Gauge,
 	Keyboard,
 	KeyRound,
+	Layers,
 	MessageSquareText,
 	MessagesSquare,
 	Moon,
@@ -50,6 +51,17 @@ import {
 	createMemoryEntry,
 } from "../domain"
 import { useChatI18n } from "../i18n"
+import {
+	PRESET_GROUPS,
+	applyPresetValues,
+	collectPresetValues,
+	presetSecretKey,
+} from "../presets"
+import {
+	readStoredSecret,
+	removeStoredSecret,
+	writeStoredSecret,
+} from "../secret-storage"
 import { useChatStore } from "../store"
 import { AGENT_ACCENTS } from "../types"
 import type {
@@ -57,13 +69,21 @@ import type {
 	AgentPreset,
 	AgentProfile,
 	AgentRole,
+	AgentSettingsPreset,
+	AgentSettingsPresetGroup,
+	BehaviorPresetValues,
+	ConnectionPresetValues,
 	ConversationMode,
+	GenerationPresetValues,
+	MemoryPresetValues,
+	PermissionsPresetValues,
 } from "../types"
 import { validateAgent } from "../validation"
 import AgentAvatar from "./AgentAvatar.vue"
 import ConfirmDialog from "./ConfirmDialog.vue"
+import SettingsPresetPicker from "./SettingsPresetPicker.vue"
 
-type SettingsTab = "application" | "ai" | "conversation"
+type SettingsTab = "application" | "ai" | "conversation" | "presets"
 type PermissionKey = keyof AgentPermissions
 
 const store = useChatStore()
@@ -83,6 +103,13 @@ const confirmTitle = ref("")
 const confirmDescription = ref("")
 const confirmLabel = ref("")
 const confirmDestructive = ref(false)
+const appliedPresetIds = ref<Record<AgentSettingsPresetGroup, string>>({
+	connection: "",
+	behavior: "",
+	generation: "",
+	memory: "",
+	permissions: "",
+})
 
 const selectedAgent = computed(() => store.selectedAgent)
 const activeConversation = computed(() => store.activeConversation)
@@ -130,6 +157,21 @@ const budgetPercent = computed(() => {
 		Math.round(((activeConversation.value?.usage.totalTokens ?? 0) / budget) * 100)
 	)
 })
+const presetsByGroup = computed<Record<AgentSettingsPresetGroup, AgentSettingsPreset[]>>(
+	() => {
+		const grouped = {
+			connection: [],
+			behavior: [],
+			generation: [],
+			memory: [],
+			permissions: [],
+		} as Record<AgentSettingsPresetGroup, AgentSettingsPreset[]>
+		for (const preset of store.presets) {
+			grouped[preset.group]?.push(preset)
+		}
+		return grouped
+	}
+)
 
 const roles: Array<{ value: AgentRole; label: string }> = [
 	{ value: "moderator", label: "Moderator" },
@@ -191,6 +233,13 @@ watch(
 		apiKeyDraft.value = selectedAgent.value
 			? store.getAgentSecret(selectedAgent.value.id)
 			: ""
+		appliedPresetIds.value = {
+			connection: "",
+			behavior: "",
+			generation: "",
+			memory: "",
+			permissions: "",
+		}
 	},
 	{ immediate: true }
 )
@@ -330,6 +379,88 @@ function removeMemory(memoryId: string): void {
 	agentDraft.value.updatedAt = Date.now()
 }
 
+function presetGroupLabel(group: AgentSettingsPresetGroup): string {
+	const labels: Record<AgentSettingsPresetGroup, string> = {
+		connection: t.value("settings.presetGroupConnection"),
+		behavior: t.value("settings.presetGroupBehavior"),
+		generation: t.value("settings.presetGroupGeneration"),
+		memory: t.value("settings.presetGroupMemory"),
+		permissions: t.value("settings.presetGroupPermissions"),
+	}
+	return labels[group]
+}
+
+function presetSummary(preset: AgentSettingsPreset): string {
+	switch (preset.group) {
+		case "connection":
+			return (preset.values as ConnectionPresetValues).endpoint
+		case "behavior": {
+			const values = preset.values as BehaviorPresetValues
+			return `${values.preset} · T ${values.temperature.toFixed(1)}`
+		}
+		case "generation": {
+			const values = preset.values as GenerationPresetValues
+			return `${values.maxTokens} / ${values.contextWindow} / ${values.retryCount}`
+		}
+		case "memory":
+			return `${(preset.values as MemoryPresetValues).length} ${t.value("settings.memory")}`
+		case "permissions": {
+			const values = preset.values as PermissionsPresetValues
+			const enabled = [
+				values.shareConversation,
+				values.autoReply,
+				values.readMemory,
+				values.writeMemory,
+			].filter(Boolean).length
+			return `${enabled}/4 ${t.value("settings.permissions")}`
+		}
+	}
+}
+
+async function applyGroupPreset(
+	group: AgentSettingsPresetGroup,
+	id: string
+): Promise<void> {
+	const preset = store.presets.find(
+		(item) => item.id === id && item.group === group
+	)
+	if (!preset || !agentDraft.value) return
+	applyPresetValues(agentDraft.value, group, preset.values)
+	appliedPresetIds.value[group] = id
+	if (group === "connection") {
+		const secret = await readStoredSecret(presetSecretKey(preset.id))
+		apiKeyDraft.value = secret ?? ""
+	}
+}
+
+async function saveGroupPreset(
+	group: AgentSettingsPresetGroup,
+	name: string
+): Promise<void> {
+	if (!agentDraft.value || !name.trim()) return
+	const values = collectPresetValues(group, agentDraft.value)
+	const preset = store.savePreset(group, name, values)
+	appliedPresetIds.value[group] = preset.id
+	if (group === "connection") {
+		const secret = apiKeyDraft.value.trim()
+		if (secret) await writeStoredSecret(presetSecretKey(preset.id), secret)
+		else await removeStoredSecret(presetSecretKey(preset.id))
+	}
+}
+
+async function deleteGroupPreset(
+	group: AgentSettingsPresetGroup,
+	id: string
+): Promise<void> {
+	store.deletePreset(id)
+	if (appliedPresetIds.value[group] === id) {
+		appliedPresetIds.value[group] = ""
+	}
+	if (group === "connection") {
+		await removeStoredSecret(presetSecretKey(id))
+	}
+}
+
 function setTheme(value: string): void {
 	theme.setThemeMode(value === "dark" ? "dark" : "light")
 }
@@ -433,6 +564,15 @@ function formatDuration(value: number): string {
 					>
 						<MessagesSquare class="size-4" />
 						{{ t("settings.conversation") }}
+					</button>
+					<button
+						type="button"
+						class="nextchat-settings__nav-item"
+						:class="{ 'is-active': activeTab === 'presets' }"
+						@click="setTopTab('presets')"
+					>
+						<Layers class="size-4" />
+						{{ t("settings.presets") }}
 					</button>
 				</div>
 
@@ -782,6 +922,15 @@ function formatDuration(value: number): string {
 										<p class="nextchat-settings-list__title">{{ t("settings.connection") }}</p>
 										<p class="nextchat-settings-list__copy">{{ t("settings.endpointHint") }}</p>
 									</div>
+									<SettingsPresetPicker
+										group="connection"
+										:items="presetsByGroup.connection"
+										:model-value="appliedPresetIds.connection"
+										:placeholder="t('settings.presetSelect')"
+										@update:model-value="(id: string) => applyGroupPreset('connection', id)"
+										@save="(name: string) => saveGroupPreset('connection', name)"
+										@delete="(id: string) => deleteGroupPreset('connection', id)"
+									/>
 								</header>
 
 								<div class="nextchat-settings-row is-stack">
@@ -876,6 +1025,15 @@ function formatDuration(value: number): string {
 										<p class="nextchat-settings-list__title">{{ t("settings.model") }}</p>
 										<p class="nextchat-settings-list__copy">{{ t("settings.modelHint") }}</p>
 									</div>
+									<SettingsPresetPicker
+										group="behavior"
+										:items="presetsByGroup.behavior"
+										:model-value="appliedPresetIds.behavior"
+										:placeholder="t('settings.presetSelect')"
+										@update:model-value="(id: string) => applyGroupPreset('behavior', id)"
+										@save="(name: string) => saveGroupPreset('behavior', name)"
+										@delete="(id: string) => deleteGroupPreset('behavior', id)"
+									/>
 								</header>
 
 								<div class="nextchat-settings-row">
@@ -921,6 +1079,69 @@ function formatDuration(value: number): string {
 									</div>
 								</div>
 
+								<div class="nextchat-settings-row">
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">{{ t("settings.topP") }}</p>
+										<p class="nextchat-settings-row__subtitle">{{ t("settings.topPHint") }}</p>
+									</div>
+									<div class="nextchat-settings-row__control">
+										<div class="flex items-center gap-3">
+											<Slider
+												v-model="agentDraft.topP"
+												:min="0"
+												:max="1"
+												:step="0.05"
+												class="flex-1"
+											/>
+											<span class="w-10 text-right text-xs font-semibold tabular-nums">
+												{{ agentDraft.topP.toFixed(2) }}
+											</span>
+										</div>
+									</div>
+								</div>
+
+								<div class="nextchat-settings-row">
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">{{ t("settings.presencePenalty") }}</p>
+										<p class="nextchat-settings-row__subtitle">{{ t("settings.presencePenaltyHint") }}</p>
+									</div>
+									<div class="nextchat-settings-row__control">
+										<div class="flex items-center gap-3">
+											<Slider
+												v-model="agentDraft.presencePenalty"
+												:min="-2"
+												:max="2"
+												:step="0.1"
+												class="flex-1"
+											/>
+											<span class="w-10 text-right text-xs font-semibold tabular-nums">
+												{{ agentDraft.presencePenalty.toFixed(1) }}
+											</span>
+										</div>
+									</div>
+								</div>
+
+								<div class="nextchat-settings-row">
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">{{ t("settings.frequencyPenalty") }}</p>
+										<p class="nextchat-settings-row__subtitle">{{ t("settings.frequencyPenaltyHint") }}</p>
+									</div>
+									<div class="nextchat-settings-row__control">
+										<div class="flex items-center gap-3">
+											<Slider
+												v-model="agentDraft.frequencyPenalty"
+												:min="-2"
+												:max="2"
+												:step="0.1"
+												class="flex-1"
+											/>
+											<span class="w-10 text-right text-xs font-semibold tabular-nums">
+												{{ agentDraft.frequencyPenalty.toFixed(1) }}
+											</span>
+										</div>
+									</div>
+								</div>
+
 								<div class="nextchat-settings-row is-vertical">
 									<div class="nextchat-settings-row__copy">
 										<p class="nextchat-settings-row__title">{{ t("settings.systemPrompt") }}</p>
@@ -930,6 +1151,37 @@ function formatDuration(value: number): string {
 										<Textarea v-model="agentDraft.systemPrompt" rows="5" class="min-h-32" />
 									</div>
 								</div>
+
+								<div class="nextchat-settings-row">
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">{{ t("settings.streaming") }}</p>
+										<p class="nextchat-settings-row__subtitle">{{ t("settings.streamingHint") }}</p>
+									</div>
+									<div class="nextchat-settings-row__control">
+										<div class="nextchat-settings-row__inline">
+											<Switch v-model="agentDraft.streaming" />
+										</div>
+									</div>
+								</div>
+							</section>
+
+							<section class="nextchat-settings-list">
+								<header class="nextchat-settings-list__header">
+									<Gauge class="size-4" />
+									<div>
+										<p class="nextchat-settings-list__title">{{ t("settings.generation") }}</p>
+										<p class="nextchat-settings-list__copy">{{ t("settings.generationHint") }}</p>
+									</div>
+									<SettingsPresetPicker
+										group="generation"
+										:items="presetsByGroup.generation"
+										:model-value="appliedPresetIds.generation"
+										:placeholder="t('settings.presetSelect')"
+										@update:model-value="(id: string) => applyGroupPreset('generation', id)"
+										@save="(name: string) => saveGroupPreset('generation', name)"
+										@delete="(id: string) => deleteGroupPreset('generation', id)"
+									/>
+								</header>
 
 								<div class="nextchat-settings-row">
 									<div class="nextchat-settings-row__copy">
@@ -978,18 +1230,6 @@ function formatDuration(value: number): string {
 										/>
 									</div>
 								</div>
-
-								<div class="nextchat-settings-row">
-									<div class="nextchat-settings-row__copy">
-										<p class="nextchat-settings-row__title">{{ t("settings.streaming") }}</p>
-										<p class="nextchat-settings-row__subtitle">{{ t("settings.streamingHint") }}</p>
-									</div>
-									<div class="nextchat-settings-row__control">
-										<div class="nextchat-settings-row__inline">
-											<Switch v-model="agentDraft.streaming" />
-										</div>
-									</div>
-								</div>
 							</section>
 
 							<section class="nextchat-settings-list">
@@ -999,6 +1239,15 @@ function formatDuration(value: number): string {
 										<p class="nextchat-settings-list__title">{{ t("settings.memory") }}</p>
 										<p class="nextchat-settings-list__copy">{{ t("settings.memoryHint") }}</p>
 									</div>
+									<SettingsPresetPicker
+										group="memory"
+										:items="presetsByGroup.memory"
+										:model-value="appliedPresetIds.memory"
+										:placeholder="t('settings.presetSelect')"
+										@update:model-value="(id: string) => applyGroupPreset('memory', id)"
+										@save="(name: string) => saveGroupPreset('memory', name)"
+										@delete="(id: string) => deleteGroupPreset('memory', id)"
+									/>
 								</header>
 
 								<div class="nextchat-settings-row is-vertical">
@@ -1053,6 +1302,15 @@ function formatDuration(value: number): string {
 										<p class="nextchat-settings-list__title">{{ t("settings.permissions") }}</p>
 										<p class="nextchat-settings-list__copy">{{ t("settings.permissionBoundary") }}</p>
 									</div>
+									<SettingsPresetPicker
+										group="permissions"
+										:items="presetsByGroup.permissions"
+										:model-value="appliedPresetIds.permissions"
+										:placeholder="t('settings.presetSelect')"
+										@update:model-value="(id: string) => applyGroupPreset('permissions', id)"
+										@save="(name: string) => saveGroupPreset('permissions', name)"
+										@delete="(id: string) => deleteGroupPreset('permissions', id)"
+									/>
 								</header>
 
 								<div
@@ -1113,7 +1371,7 @@ function formatDuration(value: number): string {
 						</section>
 					</template>
 
-					<template v-else>
+					<template v-else-if="activeTab === 'conversation'">
 						<template v-if="activeConversation">
 							<section class="nextchat-settings-list">
 								<header class="nextchat-settings-list__header">
@@ -1347,6 +1605,76 @@ function formatDuration(value: number): string {
 								</div>
 							</div>
 						</section>
+					</template>
+
+					<template v-else>
+						<div class="nextchat-presets">
+							<header class="nextchat-presets__header">
+								<div>
+									<h3>{{ t("settings.presets") }}</h3>
+									<p>{{ t("settings.presetsHint") }}</p>
+								</div>
+							</header>
+
+							<section
+								v-for="group in PRESET_GROUPS"
+								:key="group"
+								class="nextchat-settings-list"
+							>
+								<header class="nextchat-settings-list__header">
+									<Layers class="size-4" />
+									<div>
+										<p class="nextchat-settings-list__title">{{ presetGroupLabel(group) }}</p>
+										<p class="nextchat-settings-list__copy">
+											{{
+												presetsByGroup[group].length
+													? `${presetsByGroup[group].length} ${t("settings.presets")}`
+													: t("settings.presetEmpty")
+											}}
+										</p>
+									</div>
+								</header>
+
+								<div v-if="!presetsByGroup[group].length" class="nextchat-settings-row">
+									<p class="nextchat-settings-row__subtitle">
+										{{ t("settings.presetEmptyHint") }}
+									</p>
+								</div>
+
+								<div
+									v-for="preset in presetsByGroup[group]"
+									:key="preset.id"
+									class="nextchat-settings-row"
+								>
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">{{ preset.name }}</p>
+										<p class="nextchat-settings-row__subtitle">{{ presetSummary(preset) }}</p>
+									</div>
+									<div class="nextchat-settings-row__control">
+										<div class="nextchat-settings-row__inline">
+											<Button
+												variant="outline"
+												size="sm"
+												:disabled="!selectedAgent"
+												:title="t('settings.presetApplyHint')"
+												@click="applyGroupPreset(preset.group, preset.id)"
+											>
+												{{ t("settings.presetApply") }}
+											</Button>
+											<Button
+												variant="ghost"
+												size="icon"
+												class="size-8 text-muted-foreground hover:text-destructive"
+												:title="t('settings.presetDelete')"
+												@click="deleteGroupPreset(preset.group, preset.id)"
+											>
+												<Trash2 class="size-3.5" />
+											</Button>
+										</div>
+									</div>
+								</div>
+							</section>
+						</div>
 					</template>
 				</div>
 			</main>

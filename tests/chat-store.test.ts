@@ -118,4 +118,23 @@ describe("chat store recovery", () => {
 		store.updateConversationSettings(conversation.id, { tokenBudget: 2000 })
 		expect(store.getConversation(conversation.id)?.requestLimit).toBe(6)
 	})
+
+	it("persists reusable settings presets in memory", async () => {
+		setActivePinia(createPinia())
+		const store = useChatStore()
+		await store.initialize()
+
+		const saved = store.savePreset("generation", "Long output", {
+			maxTokens: 2400,
+			contextWindow: 32000,
+			retryCount: 2,
+		})
+
+		expect(store.presets.some((preset) => preset.id === saved.id)).toBe(true)
+		expect(saved.group).toBe("generation")
+		expect(saved.name).toBe("Long output")
+
+		store.deletePreset(saved.id)
+		expect(store.presets.some((preset) => preset.id === saved.id)).toBe(false)
+	})
 })

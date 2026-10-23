@@ -1,4 +1,9 @@
-import type { AgentProfile, ChatMessage, Conversation } from "./types"
+import type {
+	AgentProfile,
+	AgentSettingsPreset,
+	ChatMessage,
+	Conversation,
+} from "./types"
 import { createLogger } from "@/lib/logger"
 
 const log = createLogger("ChatStorage")
@@ -7,6 +12,7 @@ const AGENTS_KEY = "chat-yes.agents.v1"
 const CONVERSATIONS_KEY = "chat-yes.conversations.v1"
 const ACTIVE_CONVERSATION_KEY = "chat-yes.active-conversation.v1"
 const MESSAGES_PREFIX = "chat-yes.messages.v1."
+const PRESETS_KEY = "chat-yes.presets.v1"
 
 function readJson<T>(key: string, fallback: T): T {
 	try {
@@ -32,6 +38,14 @@ export function loadAgents(): AgentProfile[] {
 
 export function saveAgents(agents: AgentProfile[]): void {
 	writeJson(AGENTS_KEY, agents)
+}
+
+export function loadPresets(): AgentSettingsPreset[] {
+	return readJson<AgentSettingsPreset[]>(PRESETS_KEY, [])
+}
+
+export function savePresets(presets: AgentSettingsPreset[]): void {
+	writeJson(PRESETS_KEY, presets)
 }
 
 export function loadConversations(): Conversation[] {
