@@ -69,6 +69,14 @@ function normalizeConversation(conversation: Conversation): Conversation {
 	}
 }
 
+function normalizePersistedMessages(messages: ChatMessage[]): ChatMessage[] {
+	return messages.map((message) =>
+		message.status === "streaming"
+			? { ...message, status: "stopped" as MessageStatus }
+			: message
+	)
+}
+
 function createConversation(
 	index: number,
 	participantIds: string[]
@@ -148,9 +156,17 @@ export const useChatStore = defineStore("chat-workspace", () => {
 		initialized.value = true
 
 		for (const conversation of conversations.value) {
-			messagesByConversation.value[conversation.id] = loadMessages(
-				conversation.id
-			)
+			const persistedMessages = loadMessages(conversation.id)
+			const messages = normalizePersistedMessages(persistedMessages)
+			messagesByConversation.value[conversation.id] = messages
+			if (conversation.status === "running") {
+				conversation.status = "stopped"
+				conversation.activeAgentId = undefined
+				conversation.updatedAt = Date.now()
+			}
+			if (persistedMessages.some((message) => message.status === "streaming")) {
+				saveMessages(conversation.id, messages)
+			}
 		}
 
 		if (

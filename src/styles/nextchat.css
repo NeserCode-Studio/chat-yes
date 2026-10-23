@@ -950,6 +950,14 @@ body,
   color: var(--foreground);
   padding: 10px 12px;
   box-shadow: 0 12px 32px rgb(0 0 0 / 14%);
+  max-height: min(360px, 60vh);
+  overflow-y: auto;
+}
+
+.nextchat-event-popover__item + .nextchat-event-popover__item {
+  margin-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding-top: 10px;
 }
 
 .nextchat-event-popover__content {
