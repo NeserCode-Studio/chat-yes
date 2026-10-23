@@ -37,7 +37,7 @@ export function createAgentProfile(index = 0): AgentProfile {
 		id: createId("agent"),
 		enabled: true,
 		name: `Agent ${String(index + 1).padStart(2, "0")}`,
-		role: "analyst",
+		role: "custom",
 		accent: AGENT_ACCENTS[index % AGENT_ACCENTS.length],
 		endpoint: "http://localhost:1234/v1",
 		model: "",
@@ -149,11 +149,17 @@ export function buildAgentContext(
 
 	const roster = participants
 		.filter((participant) => participant.id !== agent.id)
-		.map((participant) => `${participant.name} (${participant.role})`)
+		.map((participant) =>
+			participant.role === "custom"
+				? participant.name
+				: `${participant.name} (${participant.role})`
+		)
 		.join(", ")
 
 	const systemSections = [
-		`You are ${agent.name}, acting as ${agent.role} in a multi-agent conversation.`,
+		agent.role === "custom"
+			? `You are ${agent.name}.`
+			: `You are ${agent.name}, acting as ${agent.role} in a multi-agent conversation.`,
 		agent.systemPrompt.trim(),
 		roster ? `Other participants: ${roster}.` : "",
 		memory ? `Your durable memory:\n${memory}` : "",

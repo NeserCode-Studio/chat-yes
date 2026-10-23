@@ -49,6 +49,20 @@ describe("agent validation", () => {
 })
 
 describe("agent context construction", () => {
+	it("does not force a persona when the agent role is custom", () => {
+		const agent = createAgentProfile()
+		agent.systemPrompt = "Respond as a friendly research assistant."
+
+		const context = buildAgentContext(agent, [agent], [])
+
+		expect(agent.role).toBe("custom")
+		expect(context[0].content).toContain("You are Agent 01.")
+		expect(context[0].content).toContain(
+			"Respond as a friendly research assistant."
+		)
+		expect(context[0].content).not.toContain("acting as")
+	})
+
 	it("includes memory only when read permission is enabled", () => {
 		const agent = createAgentProfile()
 		agent.memories = [createMemoryEntry("Prefer short implementation plans.")]

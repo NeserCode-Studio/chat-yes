@@ -58,6 +58,31 @@ const duplicateEventIds = computed(() => {
 	return ids
 })
 
+const eventGroupsById = computed(() => {
+	const groups = new Map<string, ChatMessage[]>()
+	let group: ChatMessage[] | null = null
+
+	for (const message of props.messages) {
+		if (!isEventMessage(message)) {
+			group = null
+			continue
+		}
+		if (duplicateEventIds.value.has(message.id)) continue
+
+		if (!group) {
+			group = []
+			groups.set(message.id, group)
+		}
+		group.push(message)
+	}
+
+	return groups
+})
+
+const eventGroupStartIds = computed(
+	() => new Set(eventGroupsById.value.keys())
+)
+
 watch(
 	lastMessageSignature,
 	async () => {
@@ -76,6 +101,38 @@ function formatTime(timestamp: number): string {
 		hour: "2-digit",
 		minute: "2-digit",
 	}).format(timestamp)
+}
+
+function isEventMessage(message: ChatMessage): boolean {
+	if (message.role === "event") return true
+	if (message.role !== "assistant") return false
+
+	return (
+		message.status === "error" ||
+		(message.status !== "streaming" &&
+			!message.content &&
+			!message.reasoning)
+	)
+}
+
+function eventGroupFor(message: ChatMessage): ChatMessage[] {
+	return eventGroupsById.value.get(message.id) ?? []
+}
+
+function eventLabel(messages: ChatMessage[]): string {
+	if (messages.length <= 1) return t.value("workspace.event")
+	return t.value("workspace.eventsMore", { count: messages.length - 1 })
+}
+
+function eventContent(message: ChatMessage): string {
+	if (message.role === "event") return message.content
+
+	const name = agentFor(message)?.name ?? "Agent"
+	if (message.error) return `${name}: ${message.error}`
+	if (message.status === "stopped") {
+		return `${name}: ${t.value("workspace.stopped")}`
+	}
+	return `${name}: ${t.value("workspace.emptyResponse")}`
 }
 
 function contentParts(message: ChatMessage): Array<{
@@ -161,7 +218,7 @@ onBeforeUnmount(() => {
 			<template v-else>
 				<template v-for="message in messages" :key="message.id">
 					<div
-						v-if="message.role === 'event' && !duplicateEventIds.has(message.id)"
+						v-if="eventGroupStartIds.has(message.id)"
 						class="nextchat-event"
 					>
 						<PopoverRoot>
@@ -172,7 +229,7 @@ onBeforeUnmount(() => {
 									:title="t('workspace.event')"
 								>
 									<AlertTriangle class="size-3" />
-									<span>{{ t("workspace.event") }}</span>
+									<span>{{ eventLabel(eventGroupFor(message)) }}</span>
 									<ChevronDown class="size-3" />
 								</button>
 							</PopoverTrigger>
@@ -183,19 +240,25 @@ onBeforeUnmount(() => {
 									:side-offset="8"
 									class="nextchat-event-popover"
 								>
-									<p class="nextchat-event-popover__content">
-										{{ message.content }}
-									</p>
-									<time class="nextchat-event-popover__time">
-										{{ formatTime(message.createdAt) }}
-									</time>
+									<div
+										v-for="event in eventGroupFor(message)"
+										:key="event.id"
+										class="nextchat-event-popover__item"
+									>
+										<p class="nextchat-event-popover__content">
+											{{ eventContent(event) }}
+										</p>
+										<time class="nextchat-event-popover__time">
+											{{ formatTime(event.createdAt) }}
+										</time>
+									</div>
 								</PopoverContent>
 							</PopoverPortal>
 						</PopoverRoot>
 					</div>
 
 					<div
-						v-else
+						v-else-if="!isEventMessage(message)"
 						class="nextchat-message"
 						:class="{ 'is-user': message.role === 'user' }"
 					>
