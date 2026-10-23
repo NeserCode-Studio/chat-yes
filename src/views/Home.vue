@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { useLocalStorage } from "@vueuse/core"
 import {
 	Bot,
-	CircleDot,
 	MessageSquarePlus,
+	PanelRight,
 	Settings2,
 	Sparkles,
-	Users,
 } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,6 +31,11 @@ const activeRun = ref<AbortController | null>(null)
 const titleDraft = ref("")
 const confirmOpen = ref(false)
 const confirmAction = ref<(() => void) | null>(null)
+const inspectorOpen = ref(false)
+const sidebarCollapsed = useLocalStorage(
+	"chat-yes.sidebar-collapsed.v1",
+	false
+)
 
 const conversation = computed(() => store.activeConversation)
 const participantCount = computed(
@@ -51,10 +56,12 @@ onMounted(() => {
 	if (!store.activeConversationId && store.conversations.length) {
 		store.selectConversation(store.conversations[0].id)
 	}
+	window.addEventListener("keydown", handleWindowKeydown)
 })
 
 onBeforeUnmount(() => {
 	activeRun.value?.abort()
+	window.removeEventListener("keydown", handleWindowKeydown)
 })
 
 function createSession(): void {
@@ -70,6 +77,7 @@ function deleteSession(conversationId: string): void {
 	confirmAction.value = () => {
 		if (store.activeConversation?.id === conversationId) {
 			activeRun.value?.abort()
+			inspectorOpen.value = false
 		}
 		store.deleteConversation(conversationId)
 	}
@@ -135,71 +143,80 @@ function handleComposerCommand(command: "new" | "stop" | "settings" | "clear"): 
 
 function configureAgent(agentId?: string): void {
 	if (agentId) store.selectedAgentId = agentId
+	inspectorOpen.value = false
 	dialogs.openSettings()
+}
+
+function handleWindowKeydown(event: KeyboardEvent): void {
+	if (event.key === "Escape" && inspectorOpen.value) {
+		inspectorOpen.value = false
+	}
 }
 </script>
 
 <template>
-	<div class="chat-workspace">
-		<ConversationSidebar @create="createSession" @delete="deleteSession" />
+	<div
+		class="nextchat-shell"
+		:class="{ 'is-sidebar-collapsed': sidebarCollapsed }"
+	>
+		<ConversationSidebar
+			:collapsed="sidebarCollapsed"
+			@create="createSession"
+			@delete="deleteSession"
+			@toggle="sidebarCollapsed = !sidebarCollapsed"
+		/>
 
-		<section class="chat-stage">
+		<section class="nextchat-main">
 			<template v-if="conversation">
-				<header class="chat-header">
-					<div class="min-w-0 flex-1">
-						<div class="flex items-center gap-2">
-							<CircleDot
-								class="size-3.5 shrink-0"
-								:class="conversation.status === 'running' ? 'text-teal-600 animate-pulse' : 'text-muted-foreground'"
-							/>
-							<Input
-								v-model="titleDraft"
-								class="h-8 max-w-md border-transparent bg-transparent px-1 text-base font-semibold shadow-none focus-visible:bg-black/5 dark:focus-visible:bg-white/5"
-								@blur="renameSession"
-								@keydown.enter="renameSession"
-							/>
-						</div>
-						<div class="mt-1.5 flex items-center gap-2 pl-5">
-							<div class="flex -space-x-1.5">
-								<button
-									v-for="agent in store.activeAgents"
-									:key="agent.id"
-									type="button"
-									class="rounded-md ring-2 ring-background transition-transform hover:-translate-y-0.5"
-									:title="agent.name"
-									@click="configureAgent(agent.id)"
-								>
-									<span
-										class="flex size-5 items-center justify-center rounded-md text-[0.7rem] font-semibold text-white"
-										:style="{ backgroundColor: agent.accent }"
-									>
-										{{ agent.name.slice(0, 1) }}
-									</span>
-								</button>
-							</div>
-							<span class="text-xs text-muted-foreground">
-								{{ t("workspace.participants", { count: participantCount }) }}
-							</span>
-							<span class="text-muted-foreground/40">/</span>
-							<span class="text-xs text-muted-foreground">
-								{{ conversation.mode }} · {{ conversation.roundLimit }} rounds
+				<header class="nextchat-header">
+					<div class="nextchat-header__title">
+						<p class="nextchat-header__eyebrow">{{ t("workspace.brandSubtitle") }}</p>
+						<Input
+							v-model="titleDraft"
+							class="nextchat-header__name"
+							@blur="renameSession"
+							@keydown.enter="renameSession"
+						/>
+						<div class="nextchat-header__subtitle">
+							<span>{{ t("workspace.messageCount", { count: store.activeMessages.length }) }}</span>
+							<span>·</span>
+							<span>{{ t("workspace.participants", { count: participantCount }) }}</span>
+							<span class="nextchat-header__status" :data-status="conversation.status">
+								<span
+									class="size-1.5 rounded-full"
+									:class="conversation.status === 'running' ? 'bg-primary animate-pulse' : 'bg-muted-foreground/50'"
+								></span>
+								{{ conversation.status }}
 							</span>
 						</div>
 					</div>
 
-					<div class="flex items-center gap-2">
-						<span class="chat-status-pill" :data-status="conversation.status">
-							{{ conversation.status }}
-						</span>
-						<Button
-							variant="outline"
-							size="sm"
-							class="h-8 rounded-md bg-transparent"
+					<div class="nextchat-header__actions">
+						<button
+							type="button"
+							class="nextchat-icon-button"
+							:title="t('workspace.newSession')"
+							@click="createSession"
+						>
+							<MessageSquarePlus class="size-4" />
+						</button>
+						<button
+							type="button"
+							class="nextchat-icon-button"
+							:title="t('workspace.settings')"
 							@click="dialogs.openSettings()"
 						>
-							<Settings2 class="size-3.5" />
-							{{ t("workspace.settings") }}
-						</Button>
+							<Settings2 class="size-4" />
+						</button>
+						<button
+							type="button"
+							class="nextchat-icon-button"
+							:class="{ 'is-active': inspectorOpen }"
+							:title="t('workspace.inspector')"
+							@click="inspectorOpen = !inspectorOpen"
+						>
+							<PanelRight class="size-4" />
+						</button>
 					</div>
 				</header>
 
@@ -208,6 +225,7 @@ function configureAgent(agentId?: string): void {
 					:messages="store.activeMessages"
 					:agents="store.activeAgents"
 					:running="conversation.status === 'running'"
+					@configure="configureAgent"
 				/>
 
 				<MessageComposer
@@ -221,37 +239,62 @@ function configureAgent(agentId?: string): void {
 				/>
 			</template>
 
-			<div v-else class="chat-empty-stage">
-				<div class="empty-stage-grid" aria-hidden="true"></div>
-				<div class="relative z-10 flex max-w-md flex-col items-center text-center">
-					<div class="empty-stage-icon">
+			<template v-else>
+				<header class="nextchat-header">
+					<div class="nextchat-header__title">
+						<p class="nextchat-header__eyebrow">{{ t("workspace.brandSubtitle") }}</p>
+						<p class="nextchat-header__name flex items-center">Chat Yes</p>
+						<p class="nextchat-header__subtitle">{{ t("workspace.noSessionsHint") }}</p>
+					</div>
+					<div class="nextchat-header__actions">
+						<button
+							type="button"
+							class="nextchat-icon-button"
+							:title="t('workspace.settings')"
+							@click="dialogs.openSettings()"
+						>
+							<Settings2 class="size-4" />
+						</button>
+					</div>
+				</header>
+
+				<div class="nextchat-transcript">
+					<div class="nextchat-welcome">
+						<div class="nextchat-welcome__logo">
 						<Sparkles class="size-5" />
 					</div>
-					<p class="mt-5 text-lg font-semibold">
-						{{ canStartConversation ? t("workspace.noSessions") : t("workspace.noAgents") }}
-					</p>
-					<p class="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-						{{ canStartConversation ? t("workspace.noSessionsHint") : t("workspace.noAgentsHint") }}
-					</p>
-					<Button class="mt-5" @click="createSession">
-						<Bot v-if="!canStartConversation" class="size-4" />
-						<MessageSquarePlus v-else class="size-4" />
-						{{ canStartConversation ? t("workspace.newSession") : t("workspace.noAgents") }}
-					</Button>
+						<h1 class="nextchat-welcome__title">
+							{{ canStartConversation ? t("workspace.noSessions") : t("workspace.noAgents") }}
+						</h1>
+						<p class="nextchat-welcome__subtitle">
+							{{ canStartConversation ? t("workspace.noSessionsHint") : t("workspace.noAgentsHint") }}
+						</p>
+						<Button class="mt-5 rounded-[10px]" @click="createSession">
+							<Bot v-if="!canStartConversation" class="size-4" />
+							<MessageSquarePlus v-else class="size-4" />
+							{{ canStartConversation ? t("workspace.newSession") : t("workspace.noAgents") }}
+						</Button>
+					</div>
 				</div>
-			</div>
+			</template>
 		</section>
 
-		<RunInspector v-if="conversation" :conversation="conversation" />
-		<aside v-else class="run-inspector">
-			<div class="inspector-section">
-				<div class="empty-inspector">
-					<Users class="size-5" />
-					<p class="font-medium">{{ t("workspace.inspector") }}</p>
-					<p>{{ t("workspace.noSessionsHint") }}</p>
+		<Transition name="nextchat-drawer">
+			<template v-if="conversation && inspectorOpen">
+				<button
+					type="button"
+					class="nextchat-inspector-backdrop"
+					:aria-label="t('workspace.closeInspector')"
+					@click="inspectorOpen = false"
+				></button>
+				<div class="nextchat-inspector-drawer">
+					<RunInspector
+						:conversation="conversation"
+						@close="inspectorOpen = false"
+					/>
 				</div>
-			</div>
-		</aside>
+			</template>
+		</Transition>
 
 		<ConfirmDialog
 			:open="confirmOpen"

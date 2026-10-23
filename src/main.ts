@@ -9,5 +9,6 @@ const pinia = createPinia()
 
 /* Style: Tailwind 4 CSS-first (tokens + base + components) */
 import "./style.tailwind.css"
+import "./styles/nextchat.css"
 
 createApp(App).use(router).use(pinia).mount("#app")

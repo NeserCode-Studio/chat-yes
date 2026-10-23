@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue"
-import { AlertTriangle, MessageSquareText } from "@lucide/vue"
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
+import {
+	AlertTriangle,
+	Check,
+	Copy,
+	MessagesSquare,
+	Sparkles,
+} from "@lucide/vue"
 import type { AgentProfile, ChatMessage } from "../types"
 import { useChatI18n } from "../i18n"
 import AgentAvatar from "./AgentAvatar.vue"
@@ -11,8 +17,14 @@ const props = defineProps<{
 	running: boolean
 }>()
 
+const emit = defineEmits<{
+	configure: [agentId?: string]
+}>()
+
 const { t } = useChatI18n()
 const scrollElement = ref<HTMLElement | null>(null)
+const copiedId = ref("")
+let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 const lastMessageSignature = computed(() => {
 	const last = props.messages[props.messages.length - 1]
@@ -60,95 +72,159 @@ function contentParts(message: ChatMessage): Array<{
 		.filter(Boolean)
 		.map((text) => ({ text, mention: mentions.has(text) }))
 }
+
+async function copyMessage(message: ChatMessage): Promise<void> {
+	if (!message.content || !navigator.clipboard) return
+	await navigator.clipboard.writeText(message.content)
+	copiedId.value = message.id
+	if (copyTimer) clearTimeout(copyTimer)
+	copyTimer = setTimeout(() => {
+		copiedId.value = ""
+	}, 1400)
+}
+
+onBeforeUnmount(() => {
+	if (copyTimer) clearTimeout(copyTimer)
+})
 </script>
 
 <template>
-	<div ref="scrollElement" class="chat-transcript">
-		<div v-if="!messages.length" class="transcript-empty">
-			<div class="empty-signal" aria-hidden="true">
-				<span></span><span></span><span></span>
-			</div>
-			<MessageSquareText class="size-5 text-muted-foreground" />
-			<p class="text-sm font-semibold">{{ t("workspace.noMessages") }}</p>
-			<p class="max-w-sm text-center text-xs leading-5 text-muted-foreground">
-				{{ t("workspace.noMessagesHint") }}
-			</p>
-		</div>
+	<div ref="scrollElement" class="nextchat-transcript">
+		<div class="nextchat-transcript__inner">
+			<div v-if="!messages.length" class="nextchat-welcome">
+				<div class="nextchat-welcome__logo">
+					<MessagesSquare class="size-6" />
+				</div>
+				<h1 class="nextchat-welcome__title">{{ t("workspace.startTitle") }}</h1>
+				<p class="nextchat-welcome__subtitle">{{ t("workspace.startSubtitle") }}</p>
 
-		<div v-else class="transcript-stack">
-			<template v-for="message in messages" :key="message.id">
-				<div v-if="message.role === 'event'" class="event-row">
-					<span class="event-line"></span>
-					<span class="inline-flex items-center gap-1.5">
+				<div v-if="agents.length" class="nextchat-welcome__cards">
+					<button
+						v-for="agent in agents.slice(0, 3)"
+						:key="agent.id"
+						type="button"
+						class="nextchat-welcome__card"
+						@click="emit('configure', agent.id)"
+					>
+						<AgentAvatar :agent="agent" size="md" />
+						<span class="nextchat-welcome__card-copy">
+							<strong class="nextchat-welcome__card-title">{{ agent.name }}</strong>
+							<span class="nextchat-welcome__card-meta">
+								{{ agent.model || t("workspace.configure") }}
+							</span>
+						</span>
+					</button>
+				</div>
+				<button
+					v-else
+					type="button"
+					class="nextchat-welcome__card mt-7 w-full max-w-sm"
+					@click="emit('configure')"
+				>
+					<span class="nextchat-welcome__logo size-10 rounded-xl">
+						<Sparkles class="size-4" />
+					</span>
+					<span class="nextchat-welcome__card-copy">
+						<strong class="nextchat-welcome__card-title">{{ t("settings.addAgent") }}</strong>
+						<span class="nextchat-welcome__card-meta">{{ t("workspace.noAgentsHint") }}</span>
+					</span>
+				</button>
+			</div>
+
+			<template v-else>
+				<template v-for="message in messages" :key="message.id">
+					<div v-if="message.role === 'event'" class="nextchat-event">
 						<AlertTriangle class="size-3" />
 						{{ message.content }}
-					</span>
-					<span class="event-line"></span>
-				</div>
+					</div>
 
-				<div
-					v-else
-					class="message-row"
-					:class="{ 'is-user': message.role === 'user' }"
-				>
-					<AgentAvatar
-						v-if="message.role === 'assistant'"
-						:agent="agentFor(message)"
-						size="md"
-					/>
-					<div v-else class="user-avatar">Y</div>
-
-					<div class="message-column">
-						<div class="message-meta">
-							<span class="font-semibold">
-								{{
-									message.role === "user"
-										? t("workspace.you")
-										: (agentFor(message)?.name ?? "Agent")
-								}}
-							</span>
-							<span v-if="agentFor(message)?.role" class="agent-role">
-								{{ agentFor(message)?.role }}
-							</span>
-							<span class="tabular-nums">{{ formatTime(message.createdAt) }}</span>
-							<span v-if="message.status === 'streaming'" class="stream-indicator">
-								<span></span><span></span><span></span>
-							</span>
-						</div>
-
+					<div
+						v-else
+						class="nextchat-message"
+						:class="{ 'is-user': message.role === 'user' }"
+					>
 						<div
-							class="message-bubble"
-							:class="{
-								'is-user': message.role === 'user',
-								'is-error': message.status === 'error',
-								'is-stopped': message.status === 'stopped',
-							}"
+							v-if="message.role === 'user'"
+							class="nextchat-message__avatar"
 						>
-							<div v-if="message.attachments?.length" class="message-images">
-								<img
-									v-for="attachment in message.attachments"
-									:key="attachment.id"
-									:src="attachment.dataUrl"
-									:alt="attachment.name"
-									loading="lazy"
-								/>
-							</div>
-							<p v-if="message.content" class="message-content">
+							{{ t("workspace.you").slice(0, 1) }}
+						</div>
+						<AgentAvatar
+							v-else
+							class="nextchat-message__avatar"
+							:agent="agentFor(message)"
+							size="md"
+						/>
+
+						<div class="nextchat-message__container">
+							<div class="nextchat-message__header">
+								<span class="nextchat-message__name">
+									{{
+										message.role === "user"
+											? t("workspace.you")
+											: (agentFor(message)?.name ?? "Agent")
+									}}
+								</span>
 								<span
-									v-for="(part, index) in contentParts(message)"
-									:key="`${message.id}-${index}`"
-									:class="part.mention ? 'message-mention' : ''"
-								>{{ part.text }}</span>
-							</p>
-							<p v-else-if="message.status === 'streaming'" class="thinking-copy">
-								{{ t("workspace.round", { current: 1 }) }}
-							</p>
-							<p v-if="message.error" class="mt-2 text-xs text-red-600 dark:text-red-400">
-								{{ message.error }}
-							</p>
+									v-if="message.role === 'assistant'"
+									class="nextchat-message__model"
+								>
+									{{ agentFor(message)?.model || agentFor(message)?.role }}
+								</span>
+								<span class="nextchat-message__time">{{ formatTime(message.createdAt) }}</span>
+								<span v-if="message.status === 'streaming'" class="nextchat-typing">
+									<span></span><span></span><span></span>
+								</span>
+							</div>
+
+							<div
+								class="nextchat-message__bubble"
+								:class="{
+									'is-error': message.status === 'error',
+									'is-stopped': message.status === 'stopped',
+								}"
+							>
+								<div v-if="message.attachments?.length" class="nextchat-message__images">
+									<img
+										v-for="attachment in message.attachments"
+										:key="attachment.id"
+										:src="attachment.dataUrl"
+										:alt="attachment.name"
+										loading="lazy"
+									/>
+								</div>
+								<p v-if="message.content" class="nextchat-message__content">
+									<span
+										v-for="(part, index) in contentParts(message)"
+										:key="`${message.id}-${index}`"
+										:class="part.mention ? 'nextchat-mention' : ''"
+									>{{ part.text }}</span>
+								</p>
+								<p v-else-if="message.status === 'streaming'" class="nextchat-typing">
+									<span></span><span></span><span></span>
+								</p>
+								<p v-if="message.error" class="nextchat-message__error">
+									{{ message.error }}
+								</p>
+							</div>
+
+							<div
+								v-if="message.role === 'assistant' && message.content"
+								class="nextchat-message__actions"
+							>
+								<button
+									type="button"
+									class="nextchat-message__action"
+									@click="copyMessage(message)"
+								>
+									<Check v-if="copiedId === message.id" class="size-3" />
+									<Copy v-else class="size-3" />
+									{{ copiedId === message.id ? t("workspace.copied") : t("workspace.copy") }}
+								</button>
+							</div>
 						</div>
 					</div>
-				</div>
+				</template>
 			</template>
 		</div>
 	</div>

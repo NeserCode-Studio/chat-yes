@@ -17,7 +17,7 @@ const { t } = useChatI18n()
 	<Dialog :open="dialogs.settingsOpen" @update:open="(v: boolean) => v ? dialogs.openSettings() : dialogs.closeSettings()">
 		<DialogContent
 			:hide-close="true"
-			class="flex h-[88vh] max-h-[900px] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl"
+			class="flex h-[92vh] max-h-[920px] flex-col gap-0 overflow-hidden rounded-xl p-0 sm:max-w-6xl"
 		>
 			<DialogTitle class="sr-only">{{ t("settings.title") }}</DialogTitle>
 			<DialogDescription class="sr-only">{{ t("settings.description") }}</DialogDescription>

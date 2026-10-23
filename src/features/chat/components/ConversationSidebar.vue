@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import {
+	Bot,
 	MessageSquarePlus,
 	MessagesSquare,
+	PanelLeftClose,
+	PanelLeftOpen,
 	Search,
-	Settings2,
 	Trash2,
 } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
@@ -14,9 +16,14 @@ import { useChatStore } from "../store"
 import { useChatI18n } from "../i18n"
 import AgentAvatar from "./AgentAvatar.vue"
 
+defineProps<{
+	collapsed: boolean
+}>()
+
 const emit = defineEmits<{
 	create: []
 	delete: [conversationId: string]
+	toggle: []
 }>()
 
 const store = useChatStore()
@@ -44,49 +51,51 @@ function participantsFor(conversationId: string) {
 </script>
 
 <template>
-	<aside class="chat-sidebar">
-		<div class="chat-sidebar__brand">
-			<div class="chat-mark" aria-hidden="true">
-				<span></span><span></span><span></span>
+	<aside class="nextchat-sidebar">
+		<header class="nextchat-sidebar__header">
+			<div class="nextchat-brand">
+				<div class="nextchat-brand__mark" aria-hidden="true">
+					<MessagesSquare class="size-5" />
+				</div>
+				<div class="nextchat-brand__copy">
+					<p class="nextchat-brand__title">Chat Yes</p>
+					<p class="nextchat-brand__subtitle">{{ t("workspace.brandSubtitle") }}</p>
+				</div>
 			</div>
-			<div class="min-w-0">
-				<p class="chat-eyebrow">CHAT YES</p>
-				<p class="truncate text-sm font-semibold">{{ t("workspace.sessions") }}</p>
-			</div>
-			<Button
-				variant="ghost"
-				size="icon"
-				class="ml-auto size-8 rounded-md"
-				:title="t('workspace.settings')"
-				@click="dialogs.openSettings()"
+			<button
+				type="button"
+				class="nextchat-collapse"
+				:title="collapsed ? t('workspace.expandSidebar') : t('workspace.collapseSidebar')"
+				@click="emit('toggle')"
 			>
-				<Settings2 class="size-4" />
-			</Button>
+				<PanelLeftOpen v-if="collapsed" class="size-4" />
+				<PanelLeftClose v-else class="size-4" />
+			</button>
+		</header>
+
+		<div class="nextchat-sidebar__tools">
+			<button type="button" class="nextchat-sidebar__new" @click="emit('create')">
+				<MessageSquarePlus class="size-4 shrink-0" />
+				<span>{{ t("workspace.newSession") }}</span>
+			</button>
+
+			<div class="nextchat-sidebar__search">
+				<Search />
+				<Input
+					v-model="query"
+					:placeholder="t('workspace.search')"
+					class="nextchat-sidebar__search-input text-xs"
+				/>
+			</div>
 		</div>
 
-		<div class="px-3">
-			<Button class="w-full justify-start" @click="emit('create')">
-				<MessageSquarePlus class="size-4" />
-				{{ t("workspace.newSession") }}
-			</Button>
-		</div>
-
-		<div class="relative mt-3 px-3">
-			<Search class="pointer-events-none absolute top-1/2 left-6 size-3.5 -translate-y-1/2 text-muted-foreground" />
-			<Input
-				v-model="query"
-				:placeholder="t('workspace.search')"
-				class="h-8 rounded-md border-transparent bg-black/5 pl-8 text-xs shadow-none dark:bg-white/5"
-			/>
-		</div>
-
-		<div class="chat-sidebar__list">
+		<div class="nextchat-sidebar__body">
 			<div
 				v-for="conversation in filteredConversations"
 				:key="conversation.id"
 				role="button"
 				tabindex="0"
-				class="conversation-item group"
+				class="nextchat-session"
 				:class="{
 					'is-active': store.activeConversationId === conversation.id,
 				}"
@@ -94,63 +103,55 @@ function participantsFor(conversationId: string) {
 				@keydown.enter.prevent="store.selectConversation(conversation.id)"
 				@keydown.space.prevent="store.selectConversation(conversation.id)"
 			>
-				<div class="flex min-w-0 flex-1 items-start gap-2.5">
-					<span
-						class="mt-1.5 size-1.5 shrink-0 rounded-full"
-						:class="{
-							'bg-emerald-500': conversation.status === 'idle',
-							'bg-teal-500 animate-pulse': conversation.status === 'running',
-							'bg-amber-500': conversation.status === 'stopped',
-							'bg-red-500': conversation.status === 'error',
-						}"
-					></span>
-					<div class="min-w-0 flex-1">
-						<p class="truncate text-sm font-medium">{{ conversation.title }}</p>
-						<p class="mt-0.5 truncate text-xs text-muted-foreground">
+				<div class="nextchat-session__content">
+					<div class="nextchat-session__avatars">
+						<AgentAvatar
+							v-for="agent in participantsFor(conversation.id)"
+							:key="agent?.id"
+							:agent="agent"
+							size="sm"
+						/>
+					</div>
+					<div class="nextchat-session__copy">
+						<p class="nextchat-session__title">{{ conversation.title }}</p>
+						<p class="nextchat-session__preview">
 							{{ conversation.lastMessagePreview || t("workspace.noMessagesHint") }}
 						</p>
-						<div class="mt-2 flex items-center">
-							<div class="flex -space-x-1.5">
-								<AgentAvatar
-									v-for="agent in participantsFor(conversation.id)"
-									:key="agent?.id"
-									:agent="agent"
-									size="sm"
-									class="ring-2 ring-background"
-								/>
-							</div>
-							<span class="ml-auto text-xs tabular-nums text-muted-foreground">
-								{{ conversation.usage.requestCount }} req
-							</span>
+						<div class="nextchat-session__meta">
+							<span
+								class="nextchat-session__status"
+								:data-status="conversation.status"
+							></span>
+							<span>{{ conversation.usage.requestCount }} req</span>
+							<span>·</span>
+							<span>{{ conversation.participantIds.length }} agents</span>
 						</div>
 					</div>
 				</div>
-				<Button
-					variant="ghost"
-					size="icon"
-					class="size-7 shrink-0 rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100"
+				<button
+					type="button"
+					class="nextchat-session__delete inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-destructive"
 					:title="t('workspace.deleteSession')"
 					@click.stop="emit('delete', conversation.id)"
 				>
 					<Trash2 class="size-3.5" />
-				</Button>
+				</button>
 			</div>
 
-			<div v-if="!filteredConversations.length" class="empty-sidebar">
+			<div v-if="!filteredConversations.length" class="nextchat-sidebar__empty">
 				<MessagesSquare class="size-5" />
-				<p class="font-medium">{{ t("workspace.noSessions") }}</p>
+				<strong>{{ t("workspace.noSessions") }}</strong>
 				<p>{{ t("workspace.noSessionsHint") }}</p>
 			</div>
 		</div>
 
-		<footer class="chat-sidebar__footer">
-			<div class="flex -space-x-1.5">
+		<footer class="nextchat-sidebar__footer">
+			<div class="nextchat-session__avatars">
 				<AgentAvatar
 					v-for="agent in store.agents.slice(0, 4)"
 					:key="agent.id"
 					:agent="agent"
 					size="sm"
-					class="ring-2 ring-background"
 				/>
 			</div>
 			<span class="text-xs text-muted-foreground">
@@ -159,10 +160,11 @@ function participantsFor(conversationId: string) {
 			<Button
 				variant="ghost"
 				size="icon"
-				class="ml-auto size-7 rounded-md"
+				class="ml-auto size-8 rounded-lg"
+				:title="t('workspace.settings')"
 				@click="dialogs.openSettings()"
 			>
-				<Settings2 class="size-3.5" />
+				<Bot class="size-4" />
 			</Button>
 		</footer>
 	</aside>

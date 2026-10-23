@@ -10,8 +10,8 @@ import {
 	SquareSlash,
 	X,
 } from "@lucide/vue"
-import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { useAppearanceStore } from "@/store/appearance"
 import { createId } from "../ids"
 import { useChatI18n } from "../i18n"
 import type {
@@ -36,6 +36,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useChatI18n()
+const appearance = useAppearanceStore()
 const content = ref("")
 const images = ref<ChatAttachment[]>([])
 const textarea = ref<{ root: HTMLTextAreaElement | null } | null>(null)
@@ -250,7 +251,13 @@ function keydown(event: KeyboardEvent): void {
 		}
 	}
 
-	if (event.key === "Enter" && !event.shiftKey) {
+	if (event.key === "Enter") {
+		const submit =
+			!event.shiftKey &&
+			(appearance.submitKey === "enter"
+				? !event.ctrlKey && !event.metaKey
+				: event.ctrlKey || event.metaKey)
+		if (!submit) return
 		event.preventDefault()
 		send()
 	}
@@ -388,76 +395,121 @@ function removeImage(id: string): void {
 </script>
 
 <template>
-	<div class="composer-shell">
+	<div class="nextchat-composer">
+		<div class="nextchat-composer__inner">
+			<div class="nextchat-composer__toolbar">
+				<button
+					type="button"
+					class="nextchat-composer__tool"
+					:title="t('composer.commands')"
+					@click="insertText('/')"
+				>
+					<SquareSlash class="size-3.5" />
+					<span>{{ t("composer.commands") }}</span>
+				</button>
+				<button
+					type="button"
+					class="nextchat-composer__tool"
+					:title="t('composer.mention')"
+					@click="insertText('@')"
+				>
+					<AtSign class="size-3.5" />
+					<span>{{ t("composer.mention") }}</span>
+				</button>
+				<button
+					type="button"
+					class="nextchat-composer__tool"
+					:title="t('composer.attachImage')"
+					:disabled="processingImages || images.length >= MAX_IMAGES"
+					@click="fileInput?.click()"
+				>
+					<Loader2 v-if="processingImages" class="size-3.5 animate-spin" />
+					<ImagePlus v-else class="size-3.5" />
+					<span>{{ t("composer.attachImage") }}</span>
+				</button>
+				<button
+					type="button"
+					class="nextchat-composer__tool"
+					:title="t('composer.emoji')"
+					@click="emojiOpen = !emojiOpen"
+				>
+					<Smile class="size-3.5" />
+					<span>{{ t("composer.emoji") }}</span>
+				</button>
+			</div>
+
 		<div
-			class="composer-box relative"
+			class="nextchat-composer__frame"
 			:class="{ 'is-disabled': disabled }"
 			@dragover.prevent
 			@drop="drop"
 		>
-			<div v-if="images.length" class="composer-attachments">
-				<div v-for="image in images" :key="image.id" class="composer-attachment">
+			<div v-if="images.length" class="nextchat-composer__attachments">
+				<div
+					v-for="image in images"
+					:key="image.id"
+					class="nextchat-composer__attachment"
+				>
 					<img :src="image.dataUrl" :alt="image.name" />
-					<Button
-						variant="secondary"
-						size="icon"
-						class="absolute -top-1.5 -right-1.5 size-5 rounded-full"
+					<button
+						type="button"
+						class="nextchat-composer__attachment-remove"
 						:title="t('composer.removeImage')"
 						@click="removeImage(image.id)"
 					>
 						<X class="size-3" />
-					</Button>
+					</button>
 				</div>
 			</div>
 
-			<div v-if="showCommandMenu || showMentionMenu" class="composer-menu">
-				<Button
+			<div v-if="showCommandMenu || showMentionMenu" class="nextchat-composer__menu">
+				<button
 					v-for="(command, index) in showCommandMenu ? filteredCommands : []"
 					:key="command.id"
-					variant="ghost"
-					class="h-auto w-full justify-start px-2.5 py-2 text-left"
-					:class="index === menuIndex ? 'bg-accent text-accent-foreground' : ''"
+					type="button"
+					class="nextchat-composer__menu-item"
+					:class="{ 'is-active': index === menuIndex }"
 					@mousedown.prevent
 					@click="runCommand(command.id)"
 				>
-					<span class="w-20 shrink-0 font-mono text-xs font-semibold">/{{ command.id }}</span>
-					<span class="min-w-0 flex-1">
-						<span class="block text-xs font-medium">{{ command.label }}</span>
-						<span class="block text-xs font-normal text-muted-foreground">{{ command.hint }}</span>
+					<span class="nextchat-composer__menu-key">/{{ command.id }}</span>
+					<span class="nextchat-composer__menu-copy">
+						<strong>{{ command.label }}</strong>
+						<span>{{ command.hint }}</span>
 					</span>
-				</Button>
-				<Button
+				</button>
+				<button
 					v-for="(agent, index) in showMentionMenu ? filteredAgents : []"
 					:key="agent.id"
-					variant="ghost"
-					class="h-auto w-full justify-start px-2.5 py-2 text-left"
-					:class="index === menuIndex ? 'bg-accent text-accent-foreground' : ''"
+					type="button"
+					class="nextchat-composer__menu-item"
+					:class="{ 'is-active': index === menuIndex }"
 					@mousedown.prevent
 					@click="selectMention(agent)"
 				>
 					<span
-						class="flex size-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold text-white"
+						class="flex size-7 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-white"
 						:style="{ backgroundColor: agent.accent }"
 					>
 						{{ agent.name.slice(0, 1) }}
 					</span>
-					<span class="min-w-0 flex-1 truncate text-sm">{{ agent.name }}</span>
-					<span class="text-xs text-muted-foreground">{{ agent.role }}</span>
-				</Button>
+					<span class="nextchat-composer__menu-copy">
+						<strong>{{ agent.name }}</strong>
+						<span>{{ agent.role }} · {{ agent.model || t("settings.connectionIncomplete") }}</span>
+					</span>
+				</button>
 			</div>
 
-			<div v-if="emojiOpen" class="composer-emoji-panel">
-				<Button
+			<div v-if="emojiOpen" class="nextchat-composer__emoji">
+				<button
 					v-for="emoji in emojis"
 					:key="emoji"
-					variant="ghost"
-					size="icon"
-					class="size-8 text-lg"
+					type="button"
 					@mousedown.prevent
 					@click="insertText(emoji)"
 				>
 					{{ emoji }}
-				</Button>
+				</button>
 			</div>
 
 			<Textarea
@@ -466,83 +518,42 @@ function removeImage(id: string): void {
 				rows="1"
 				:placeholder="t('workspace.placeholder')"
 				:disabled="disabled || running"
-				class="composer-input min-h-0"
+				class="nextchat-composer__input"
 				@input="resize"
 				@keydown="keydown"
 				@paste="paste"
 			/>
 
-			<p v-if="notice" class="px-1 pb-1 text-xs text-amber-700 dark:text-amber-400">
+			<p v-if="notice" class="nextchat-composer__notice">
 				{{ notice }}
 			</p>
 
-			<div class="composer-actions">
-				<div class="flex items-center gap-0.5">
-					<Button
-						variant="ghost"
-						size="icon"
-						class="size-8"
-						:title="t('composer.commands')"
-						@click="insertText('/')"
-					>
-						<SquareSlash class="size-4" />
-					</Button>
-					<Button
-						variant="ghost"
-						size="icon"
-						class="size-8"
-						:title="t('composer.mention')"
-						@click="insertText('@')"
-					>
-						<AtSign class="size-4" />
-					</Button>
-					<Button
-						variant="ghost"
-						size="icon"
-						class="size-8"
-						:title="t('composer.attachImage')"
-						:disabled="processingImages || images.length >= MAX_IMAGES"
-						@click="fileInput?.click()"
-					>
-						<Loader2 v-if="processingImages" class="size-4 animate-spin" />
-						<ImagePlus v-else class="size-4" />
-					</Button>
-					<Button
-						variant="ghost"
-						size="icon"
-						class="size-8"
-						:title="t('composer.emoji')"
-						@click="emojiOpen = !emojiOpen"
-					>
-						<Smile class="size-4" />
-					</Button>
-				</div>
+			<button
+				v-if="running"
+				type="button"
+				class="nextchat-composer__send is-stop"
+				:title="t('workspace.stop')"
+				@click="emit('stop')"
+			>
+				<Square class="size-3.5 fill-current" />
+			</button>
+			<button
+				v-else
+				type="button"
+				class="nextchat-composer__send"
+				:title="t('workspace.send')"
+				:disabled="!canSend"
+				@click="send"
+			>
+				<ArrowUp class="size-4" />
+			</button>
+		</div>
 
-				<div class="flex items-center gap-2">
-					<span class="hidden text-xs text-muted-foreground sm:inline">
-						{{ t("workspace.hint") }}
-					</span>
-					<Button
-						v-if="running"
-						variant="destructive"
-						size="sm"
-						class="h-8 rounded-md px-3"
-						@click="emit('stop')"
-					>
-						<Square class="size-3 fill-current" />
-						{{ t("workspace.stop") }}
-					</Button>
-					<Button
-						v-else
-						size="sm"
-						class="h-8 rounded-md px-3"
-						:disabled="!canSend"
-						@click="send"
-					>
-						{{ t("workspace.send") }}
-						<ArrowUp class="size-4" />
-					</Button>
-				</div>
+			<div class="nextchat-composer__hint">
+				<span>
+					{{ appearance.submitKey === "enter" ? t("workspace.hint") : t("workspace.hintCtrl") }}
+				</span>
+				<span>{{ t("workspace.participants", { count: participantCount }) }}</span>
 			</div>
 
 			<input

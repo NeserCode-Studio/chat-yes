@@ -9,6 +9,7 @@ import {
 	Settings2,
 	ShieldCheck,
 	Trash2,
+	X,
 } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,6 +27,10 @@ import AgentAvatar from "./AgentAvatar.vue"
 
 const props = defineProps<{
 	conversation: Conversation
+}>()
+
+const emit = defineEmits<{
+	close: []
 }>()
 
 type InspectorTab = "agents" | "usage" | "memory" | "permissions"
@@ -136,12 +141,23 @@ function formatDuration(value: number): string {
 				<p class="chat-eyebrow">LIVE CONTEXT</p>
 				<p class="text-sm font-semibold">{{ t("workspace.inspector") }}</p>
 			</div>
-			<div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-				<span
-					class="size-1.5 rounded-full"
-					:class="conversation.status === 'running' ? 'bg-teal-500 animate-pulse' : 'bg-emerald-500'"
-				></span>
-				{{ conversation.status }}
+			<div class="flex items-center gap-2">
+				<div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+					<span
+						class="size-1.5 rounded-full"
+						:class="conversation.status === 'running' ? 'bg-primary animate-pulse' : 'bg-emerald-500'"
+					></span>
+					{{ conversation.status }}
+				</div>
+				<Button
+					variant="ghost"
+					size="icon"
+					class="size-8 rounded-lg"
+					:title="t('workspace.closeInspector')"
+					@click="emit('close')"
+				>
+					<X class="size-4" />
+				</Button>
 			</div>
 		</header>
 
