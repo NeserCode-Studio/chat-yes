@@ -1,9 +1,11 @@
 import { completeChat, ChatApiError } from "./api"
 import {
 	buildAgentContext,
+	CONVERSATION_COMPLETE_TAG,
 	estimateApiContentTokens,
 	estimateTokens,
 	usageFromCompletion,
+	stripCompletionSignal,
 } from "./domain"
 import { createId } from "./ids"
 import type { ChatStore } from "./store-types"
@@ -86,6 +88,20 @@ function fallbackUsage(
 		},
 		latencyMs
 	)
+}
+
+function streamingDisplayContent(content: string): string {
+	const lower = content.toLowerCase()
+	for (
+		let index = lower.lastIndexOf("<");
+		index >= 0;
+		index = lower.lastIndexOf("<", index - 1)
+	) {
+		if (CONVERSATION_COMPLETE_TAG.startsWith(lower.slice(index))) {
+			return content.slice(0, index)
+		}
+	}
+	return content
 }
 
 async function raceAbort<T>(
@@ -254,7 +270,7 @@ export async function runConversation(
 									.getMessages(conversationId)
 									.find((item) => item.id === message.id)?.content ?? ""
 							store.patchMessage(conversationId, message.id, {
-								content: current + delta,
+								content: streamingDisplayContent(current + delta),
 							})
 							const now = Date.now()
 							if (now - lastPersist > 600) {
@@ -297,9 +313,22 @@ export async function runConversation(
 								result.content + (result.reasoning ?? ""),
 								result.latencyMs
 							)
+					const isConversationComplete = result.content
+						.toLowerCase()
+						.includes(CONVERSATION_COMPLETE_TAG)
+					const visibleContent = isConversationComplete
+						? stripCompletionSignal(result.content)
+						: result.content
+
+					if (isConversationComplete && !visibleContent) {
+						store.removeMessage(conversationId, message.id)
+						store.addConversationUsage(conversationId, usage)
+						store.setConversationStatus(conversationId, "idle")
+						return { status: "completed", requests: requests + 1 }
+					}
 
 					store.patchMessage(conversationId, message.id, {
-						content: result.content,
+						content: visibleContent,
 						reasoning: result.reasoning ?? "",
 						status: "complete",
 						usage,
@@ -307,6 +336,11 @@ export async function runConversation(
 					store.addConversationUsage(conversationId, usage)
 					store.persistMessages(conversationId)
 					requests += 1
+
+					if (isConversationComplete) {
+						store.setConversationStatus(conversationId, "idle")
+						return { status: "completed", requests }
+					}
 				} catch (error) {
 					if (options.signal.aborted) {
 						store.setMessageStatus(conversationId, message.id, "stopped")

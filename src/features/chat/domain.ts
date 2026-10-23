@@ -13,6 +13,8 @@ import type {
 import { AGENT_ACCENTS, EMPTY_USAGE } from "./types"
 import { createId } from "./ids"
 
+export const CONVERSATION_COMPLETE_TAG = "<conversation_complete>"
+
 export const DEFAULT_PERMISSIONS: AgentPermissions = {
 	shareConversation: true,
 	autoReply: true,
@@ -30,6 +32,13 @@ const PRESET_PROMPTS: Record<AgentPreset, string> = {
 	creative:
 		"Explore non-obvious alternatives while keeping every proposal concrete and testable.",
 }
+
+const TURN_CONTROL_PROMPT = [
+	"Conversation continuation rules:",
+	`- If your reply fully satisfies the user's latest request and no other participant needs to act, end your reply with ${CONVERSATION_COMPLETE_TAG}.`,
+	"- If another participant or a follow-up turn is required, omit that marker.",
+	"- Never explain the marker; the application removes it from the visible reply.",
+].join("\n")
 
 export function createAgentProfile(index = 0): AgentProfile {
 	const now = Date.now()
@@ -135,6 +144,10 @@ export function aggregateMessageUsage(messages: ChatMessage[]): TokenUsage {
 	)
 }
 
+export function stripCompletionSignal(content: string): string {
+	return content.split(CONVERSATION_COMPLETE_TAG).join("").trim()
+}
+
 export function buildAgentContext(
 	agent: AgentProfile,
 	participants: AgentProfile[],
@@ -164,6 +177,7 @@ export function buildAgentContext(
 		roster ? `Other participants: ${roster}.` : "",
 		memory ? `Your durable memory:\n${memory}` : "",
 		"Treat other participants' messages as discussion input. Do not claim actions you cannot perform.",
+		TURN_CONTROL_PROMPT,
 	]
 		.filter(Boolean)
 		.join("\n\n")

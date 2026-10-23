@@ -125,6 +125,63 @@ describe("conversation orchestration", () => {
 		).toBe("Reasoning")
 	})
 
+	it("stops after the model signals that its reply is complete", async () => {
+		completeChatMock.mockResolvedValue({
+			content: "Hello!<conversation_complete>",
+			usage: {
+				promptTokens: 10,
+				completionTokens: 3,
+				totalTokens: 13,
+			},
+			latencyMs: 120,
+		})
+		const { store, conversation } = prepareConversation()
+		conversation.roundLimit = 3
+		conversation.requestLimit = 3
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result.status).toBe("completed")
+		expect(completeChatMock).toHaveBeenCalledTimes(1)
+		expect(conversation.status).toBe("idle")
+		expect(
+			store.messagesByConversation[conversation.id].find(
+				(message) => message.role === "assistant"
+			)?.content
+		).toBe("Hello!")
+	})
+
+	it("discards a signal-only turn and keeps its usage", async () => {
+		completeChatMock.mockResolvedValue({
+			content: "<conversation_complete>",
+			usage: {
+				promptTokens: 8,
+				completionTokens: 2,
+				totalTokens: 10,
+			},
+			latencyMs: 80,
+		})
+		const { store, conversation } = prepareConversation()
+		conversation.roundLimit = 3
+		conversation.requestLimit = 3
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result.status).toBe("completed")
+		expect(completeChatMock).toHaveBeenCalledTimes(1)
+		expect(conversation.status).toBe("idle")
+		expect(
+			store.messagesByConversation[conversation.id].filter(
+				(message) => message.role === "assistant"
+			)
+		).toHaveLength(0)
+		expect(conversation.usage.totalTokens).toBe(10)
+	})
+
 	it("stops a pending request immediately", async () => {
 		completeChatMock.mockReturnValue(
 			new Promise<CompletionResult>(() => {})

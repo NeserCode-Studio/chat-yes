@@ -185,7 +185,9 @@ function formatDuration(value: number): string {
 				<div class="section-heading">
 					<div>
 						<p class="section-title">{{ t("workspace.participants", { count: conversation.participantIds.length }) }}</p>
-						<p class="section-copy">{{ conversation.mode }} · {{ conversation.roundLimit }} rounds</p>
+						<p class="section-copy">
+							{{ conversation.mode }} · {{ t("workspace.maxRounds", { count: conversation.roundLimit }) }}
+						</p>
 					</div>
 					<Button variant="ghost" size="icon" class="size-7" @click="dialogs.openSettings()">
 						<Plus class="size-3.5" />

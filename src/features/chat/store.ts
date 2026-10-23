@@ -366,6 +366,24 @@ export const useChatStore = defineStore("chat-workspace", () => {
 		}
 	}
 
+	function removeMessage(
+		conversationId: string,
+		messageId: string
+	): void {
+		const messages = getMessages(conversationId)
+		const index = messages.findIndex((message) => message.id === messageId)
+		if (index < 0) return
+		messages.splice(index, 1)
+		const conversation = getConversation(conversationId)
+		if (conversation) {
+			conversation.lastMessagePreview = sanitizePreview(
+				messages[messages.length - 1]?.content ?? ""
+			)
+			conversation.updatedAt = Date.now()
+		}
+		persistMessages(conversationId)
+	}
+
 	function setMessageStatus(
 		conversationId: string,
 		messageId: string,
@@ -453,6 +471,7 @@ export const useChatStore = defineStore("chat-workspace", () => {
 		getAgentSecret,
 		addMessage,
 		patchMessage,
+		removeMessage,
 		setMessageStatus,
 		setConversationStatus,
 		setActiveAgent,
