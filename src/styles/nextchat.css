@@ -829,7 +829,6 @@ body,
   padding: 10px 20px 20px;
   border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   background: var(--card);
-  box-shadow: 0 -2px 8px rgb(0 0 0 / 3%);
 }
 
 .nextchat-composer__inner {
@@ -874,17 +873,16 @@ body,
 
 .nextchat-composer__frame {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--card);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 4%);
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  box-shadow: none;
+  transition: border-color 150ms ease;
 }
 
 .nextchat-composer__frame:focus-within {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .nextchat-composer__frame.is-disabled {
@@ -946,7 +944,8 @@ body,
 }
 
 .nextchat-composer__input:focus-visible {
-  box-shadow: none;
+  outline: none;
+  box-shadow: none !important;
 }
 
 .nextchat-composer__send {

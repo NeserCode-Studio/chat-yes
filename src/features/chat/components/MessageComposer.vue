@@ -431,6 +431,8 @@ function removeImage(id: string): void {
 					type="button"
 					class="nextchat-composer__tool"
 					:title="t('composer.emoji')"
+					:aria-expanded="emojiOpen"
+					aria-controls="composer-emoji-panel"
 					@click="emojiOpen = !emojiOpen"
 				>
 					<Smile class="size-3.5" />
@@ -500,7 +502,13 @@ function removeImage(id: string): void {
 				</button>
 			</div>
 
-			<div v-if="emojiOpen" class="nextchat-composer__emoji">
+			<div
+				v-if="emojiOpen"
+				id="composer-emoji-panel"
+				class="nextchat-composer__emoji"
+				role="dialog"
+				:aria-label="t('composer.emoji')"
+			>
 				<button
 					v-for="emoji in emojis"
 					:key="emoji"
