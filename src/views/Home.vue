@@ -10,6 +10,7 @@ import {
 } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { ScrollArea, ScrollAreaInner } from "@/components/ui/scroll-area"
 import { useToast } from "@/composables/useToast"
 import { useDialogStore } from "@/store"
 import ChatTranscript from "@/features/chat/components/ChatTranscript.vue"
@@ -265,24 +266,26 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 					</div>
 				</header>
 
-				<div class="nextchat-transcript">
-					<div class="nextchat-welcome">
-						<div class="nextchat-welcome__logo">
-						<Sparkles class="size-5" />
-					</div>
-						<h1 class="nextchat-welcome__title">
-							{{ canStartConversation ? t("workspace.noSessions") : t("workspace.noAgents") }}
-						</h1>
-						<p class="nextchat-welcome__subtitle">
-							{{ canStartConversation ? t("workspace.noSessionsHint") : t("workspace.noAgentsHint") }}
-						</p>
-						<Button class="mt-5 rounded-[10px]" @click="createSession">
-							<Bot v-if="!canStartConversation" class="size-4" />
-							<MessageSquarePlus v-else class="size-4" />
-							{{ canStartConversation ? t("workspace.newSession") : t("workspace.noAgents") }}
-						</Button>
-					</div>
-				</div>
+				<ScrollArea class="nextchat-transcript">
+					<ScrollAreaInner>
+						<div class="nextchat-welcome">
+							<div class="nextchat-welcome__logo">
+								<Sparkles class="size-5" />
+							</div>
+							<h1 class="nextchat-welcome__title">
+								{{ canStartConversation ? t("workspace.noSessions") : t("workspace.noAgents") }}
+							</h1>
+							<p class="nextchat-welcome__subtitle">
+								{{ canStartConversation ? t("workspace.noSessionsHint") : t("workspace.noAgentsHint") }}
+							</p>
+							<Button class="mt-5 rounded-[10px]" @click="createSession">
+								<Bot v-if="!canStartConversation" class="size-4" />
+								<MessageSquarePlus v-else class="size-4" />
+								{{ canStartConversation ? t("workspace.newSession") : t("workspace.noAgents") }}
+							</Button>
+						</div>
+					</ScrollAreaInner>
+				</ScrollArea>
 			</template>
 		</section>
 

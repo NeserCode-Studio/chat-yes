@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import {
 	AlertTriangle,
 	Check,
@@ -15,6 +15,7 @@ import {
 	PopoverRoot,
 	PopoverTrigger,
 } from "reka-ui"
+import { ScrollArea, ScrollAreaInner } from "@/components/ui/scroll-area"
 import type { AgentProfile, ChatMessage } from "../types"
 import { useChatI18n } from "../i18n"
 import AgentAvatar from "./AgentAvatar.vue"
@@ -30,8 +31,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useChatI18n()
-const scrollElement = ref<HTMLElement | null>(null)
+const transcriptScroll = ref<{
+	scrollToBottom: () => void
+} | null>(null)
 const copiedId = ref("")
+const reasoningOpenStates = ref<Record<string, boolean>>({})
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 const lastMessageSignature = computed(() => {
@@ -83,14 +87,18 @@ const eventGroupStartIds = computed(
 	() => new Set(eventGroupsById.value.keys())
 )
 
-watch(
-	lastMessageSignature,
-	async () => {
-		await nextTick()
-		const element = scrollElement.value
-		if (element) element.scrollTop = element.scrollHeight
-	}
-)
+function scrollToBottom(): void {
+	void nextTick(() => {
+		transcriptScroll.value?.scrollToBottom()
+		requestAnimationFrame(() => {
+			transcriptScroll.value?.scrollToBottom()
+		})
+	})
+}
+
+onMounted(scrollToBottom)
+
+watch(lastMessageSignature, scrollToBottom, { flush: "post" })
 
 function agentFor(message: ChatMessage): AgentProfile | undefined {
 	return props.agents.find((agent) => agent.id === message.agentId)
@@ -113,6 +121,20 @@ function isEventMessage(message: ChatMessage): boolean {
 			!message.content &&
 			!message.reasoning)
 	)
+}
+
+function reasoningOpen(message: ChatMessage): boolean {
+	return (
+		reasoningOpenStates.value[message.id] ??
+		(message.status === "streaming" && !message.content)
+	)
+}
+
+function setReasoningOpen(id: string, open: boolean): void {
+	reasoningOpenStates.value = {
+		...reasoningOpenStates.value,
+		[id]: open,
+	}
 }
 
 function eventGroupFor(message: ChatMessage): ChatMessage[] {
@@ -173,8 +195,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-	<div ref="scrollElement" class="nextchat-transcript">
-		<div class="nextchat-transcript__inner">
+	<ScrollArea class="nextchat-transcript">
+		<ScrollAreaInner ref="transcriptScroll">
+			<div class="nextchat-transcript__inner">
 			<div v-if="!messages.length" class="nextchat-welcome">
 				<div class="nextchat-welcome__logo">
 					<MessagesSquare class="size-6" />
@@ -309,18 +332,28 @@ onBeforeUnmount(() => {
 										loading="lazy"
 									/>
 								</div>
-								<details
+								<div
 									v-if="message.reasoning"
 									class="nextchat-reasoning"
-									:open="message.status === 'streaming' && !message.content"
+									:class="{ 'is-open': reasoningOpen(message) }"
 								>
-									<summary>
+									<button
+										type="button"
+										class="nextchat-reasoning__summary"
+										:aria-expanded="reasoningOpen(message)"
+										@click="setReasoningOpen(message.id, !reasoningOpen(message))"
+									>
 										<Brain class="size-3.5" />
 										<span>{{ t("workspace.thinking") }}</span>
 										<ChevronDown class="size-3" />
-									</summary>
-									<p class="nextchat-reasoning__content">{{ message.reasoning }}</p>
-								</details>
+									</button>
+									<p v-if="reasoningOpen(message)" class="nextchat-reasoning__content">
+										{{ message.reasoning }}
+									</p>
+									<p v-else class="nextchat-reasoning__preview line-clamp-4">
+										{{ message.reasoning }}
+									</p>
+								</div>
 								<p v-if="message.content" class="nextchat-message__content">
 									<span
 										v-for="(part, index) in contentParts(message)"
@@ -356,7 +389,8 @@ onBeforeUnmount(() => {
 						</div>
 					</div>
 				</template>
-			</template>
-		</div>
-	</div>
+				</template>
+			</div>
+		</ScrollAreaInner>
+	</ScrollArea>
 </template>

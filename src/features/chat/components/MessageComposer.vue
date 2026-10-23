@@ -10,6 +10,7 @@ import {
 	SquareSlash,
 	X,
 } from "@lucide/vue"
+import { ScrollArea, ScrollAreaInner } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { useAppearanceStore } from "@/store/appearance"
 import { createId } from "../ids"
@@ -40,17 +41,23 @@ const appearance = useAppearanceStore()
 const content = ref("")
 const images = ref<ChatAttachment[]>([])
 const textarea = ref<{ root: HTMLTextAreaElement | null } | null>(null)
+const editorScroll = ref<{
+	scrollToBottom: () => void
+} | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const emojiOpen = ref(false)
 const processingImages = ref(false)
 const notice = ref("")
 const menuIndex = ref(0)
 const caret = ref(0)
+const editorHeight = ref(76)
 
 const MAX_IMAGES = 2
 const MAX_FILE_BYTES = 8 * 1024 * 1024
 const MAX_DATA_URL_LENGTH = 520_000
 const MAX_IMAGE_EDGE = 1200
+const MIN_EDITOR_HEIGHT = 76
+const MAX_EDITOR_HEIGHT = 180
 
 const emojis = [
 	"😀", "😄", "😁", "😂", "🙂", "😉",
@@ -145,7 +152,12 @@ function resize(): void {
 	const el = textarea.value?.root
 	if (!el) return
 	el.style.height = "0px"
-	el.style.height = `${Math.min(el.scrollHeight, 180)}px`
+	const contentHeight = Math.max(el.scrollHeight, MIN_EDITOR_HEIGHT)
+	el.style.height = `${contentHeight}px`
+	editorHeight.value = Math.min(contentHeight, MAX_EDITOR_HEIGHT)
+	void nextTick(() => {
+		editorScroll.value?.scrollToBottom()
+	})
 }
 
 function updateCaret(): void {
@@ -541,20 +553,27 @@ function removeImage(id: string): void {
 				</button>
 			</div>
 
-			<Textarea
-				ref="textarea"
-				v-model="content"
-				rows="1"
-				:placeholder="t('workspace.placeholder')"
-				:disabled="disabled || running"
-				class="nextchat-composer__input"
-				@input="resize"
-				@click="updateCaret"
-				@focus="updateCaret"
-				@keyup="updateCaret"
-				@keydown="keydown"
-				@paste="paste"
-			/>
+			<ScrollArea
+				class="nextchat-composer__editor-scroll"
+				:style="{ height: `${editorHeight}px` }"
+			>
+				<ScrollAreaInner ref="editorScroll">
+					<Textarea
+						ref="textarea"
+						v-model="content"
+						rows="1"
+						:placeholder="t('workspace.placeholder')"
+						:disabled="disabled || running"
+						class="nextchat-composer__input"
+						@input="resize"
+						@click="updateCaret"
+						@focus="updateCaret"
+						@keyup="updateCaret"
+						@keydown="keydown"
+						@paste="paste"
+					/>
+				</ScrollAreaInner>
+			</ScrollArea>
 
 			<p v-if="notice" class="nextchat-composer__notice">
 				{{ notice }}

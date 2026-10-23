@@ -1,9 +1,23 @@
 <script setup lang="ts">
+import { ref, unref } from "vue"
 import { ScrollAreaViewport, ScrollAreaScrollbar, ScrollAreaThumb } from "reka-ui"
+
+const viewport = ref<InstanceType<typeof ScrollAreaViewport> | null>(null)
+
+function scrollToBottom(): void {
+  const element = unref(viewport.value?.viewportElement)
+  if (!element) return
+  element.scrollTop = element.scrollHeight
+}
+
+defineExpose({ scrollToBottom })
 </script>
 
 <template>
-  <ScrollAreaViewport class="size-full rounded-[inherit]">
+  <ScrollAreaViewport
+    ref="viewport"
+    class="size-full rounded-[inherit]"
+  >
     <slot />
   </ScrollAreaViewport>
   <ScrollAreaScrollbar
