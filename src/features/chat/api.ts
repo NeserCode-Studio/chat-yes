@@ -11,8 +11,16 @@ import { resolveCompletionUrl } from "./validation"
 interface CompletionPayload {
 	model?: string
 	choices?: Array<{
-		message?: { content?: string | null }
-		delta?: { content?: string | null }
+		message?: {
+			content?: string | null
+			reasoning?: string | null
+			reasoning_content?: string | null
+		}
+		delta?: {
+			content?: string | null
+			reasoning?: string | null
+			reasoning_content?: string | null
+		}
 		finish_reason?: string | null
 	}>
 	usage?: {
@@ -25,6 +33,8 @@ interface CompletionPayload {
 		type?: string
 	}
 }
+
+type CompletionChoice = NonNullable<CompletionPayload["choices"]>[number]
 
 export class ChatApiError extends Error {
 	status?: number
@@ -81,6 +91,22 @@ function parseUsage(payload: CompletionPayload): CompletionUsage {
 	})
 }
 
+function reasoningText(value?: string | null): string {
+	return value ?? ""
+}
+
+function reasoningFromMessage(
+	message?: CompletionChoice["message"]
+): string {
+	return reasoningText(message?.reasoning_content ?? message?.reasoning)
+}
+
+function reasoningFromDelta(
+	delta?: CompletionChoice["delta"]
+): string {
+	return reasoningText(delta?.reasoning_content ?? delta?.reasoning)
+}
+
 function errorFromResponse(status: number, body: string): ChatApiError {
 	let message = body.trim()
 	try {
@@ -131,8 +157,9 @@ function dataFromEvent(event: string): string | null {
 
 async function readStream(
 	response: Response,
-	onDelta?: (delta: string) => void
-): Promise<{ content: string; usage: CompletionUsage }> {
+	onDelta?: (delta: string) => void,
+	onReasoningDelta?: (delta: string) => void
+): Promise<{ content: string; reasoning: string; usage: CompletionUsage }> {
 	if (!response.body) {
 		throw new ChatApiError("Streaming response has no body")
 	}
@@ -141,6 +168,7 @@ async function readStream(
 	const decoder = new TextDecoder()
 	let buffer = ""
 	let content = ""
+	let reasoning = ""
 	let usage: CompletionUsage = normalizeUsage()
 
 	while (true) {
@@ -161,9 +189,14 @@ async function readStream(
 			}
 
 			const delta = payload.choices?.[0]?.delta?.content ?? ""
+			const reasoningDelta = reasoningFromDelta(payload.choices?.[0]?.delta)
 			if (delta) {
 				content += delta
 				onDelta?.(delta)
+			}
+			if (reasoningDelta) {
+				reasoning += reasoningDelta
+				onReasoningDelta?.(reasoningDelta)
 			}
 			if (payload.usage) usage = parseUsage(payload)
 			if (payload.error?.message) {
@@ -174,7 +207,7 @@ async function readStream(
 		if (done) break
 	}
 
-	return { content, usage }
+	return { content, reasoning, usage }
 }
 
 async function executeOnce(
@@ -213,7 +246,11 @@ async function executeOnce(
 		}
 
 		if (options.streaming) {
-			const result = await readStream(response, options.onDelta)
+			const result = await readStream(
+				response,
+				options.onDelta,
+				options.onReasoningDelta
+			)
 			return {
 				...result,
 				latencyMs: Math.round(performance.now() - startedAt),
@@ -222,9 +259,12 @@ async function executeOnce(
 
 		const payload = (await response.json()) as CompletionPayload
 		const content = payload.choices?.[0]?.message?.content ?? ""
+		const reasoning = reasoningFromMessage(payload.choices?.[0]?.message)
 		options.onDelta?.(content)
+		if (reasoning) options.onReasoningDelta?.(reasoning)
 		return {
 			content,
+			reasoning,
 			usage: parseUsage(payload),
 			latencyMs: Math.round(performance.now() - startedAt),
 		}
@@ -257,6 +297,10 @@ export async function completeChat(
 		onDelta: (delta) => {
 			emittedDelta = true
 			options.onDelta?.(delta)
+		},
+		onReasoningDelta: (delta) => {
+			emittedDelta = true
+			options.onReasoningDelta?.(delta)
 		},
 	}
 

@@ -322,10 +322,6 @@ function formatDuration(value: number): string {
 				<h2>{{ t("settings.title") }}</h2>
 				<p>{{ t("settings.description") }}</p>
 			</div>
-			<Button variant="outline" size="sm" class="rounded-[10px]" @click="closeSettings">
-				<CheckCircle2 class="size-3.5" />
-				{{ t("settings.done") }}
-			</Button>
 			<Button
 				variant="ghost"
 				size="icon"

@@ -4,6 +4,8 @@ import {
 	AlertTriangle,
 	Check,
 	Copy,
+	Brain,
+	ChevronDown,
 	MessagesSquare,
 	Sparkles,
 } from "@lucide/vue"
@@ -28,7 +30,7 @@ let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 const lastMessageSignature = computed(() => {
 	const last = props.messages[props.messages.length - 1]
-	return `${props.messages.length}:${last?.id ?? ""}:${last?.content.length ?? 0}:${last?.status ?? ""}`
+	return `${props.messages.length}:${last?.id ?? ""}:${last?.content.length ?? 0}:${last?.reasoning?.length ?? 0}:${last?.status ?? ""}`
 })
 
 watch(
@@ -172,9 +174,6 @@ onBeforeUnmount(() => {
 									{{ agentFor(message)?.model || agentFor(message)?.role }}
 								</span>
 								<span class="nextchat-message__time">{{ formatTime(message.createdAt) }}</span>
-								<span v-if="message.status === 'streaming'" class="nextchat-typing">
-									<span></span><span></span><span></span>
-								</span>
 							</div>
 
 							<div
@@ -193,6 +192,18 @@ onBeforeUnmount(() => {
 										loading="lazy"
 									/>
 								</div>
+								<details
+									v-if="message.reasoning"
+									class="nextchat-reasoning"
+									:open="message.status === 'streaming' && !message.content"
+								>
+									<summary>
+										<Brain class="size-3.5" />
+										<span>{{ t("workspace.thinking") }}</span>
+										<ChevronDown class="size-3" />
+									</summary>
+									<p class="nextchat-reasoning__content">{{ message.reasoning }}</p>
+								</details>
 								<p v-if="message.content" class="nextchat-message__content">
 									<span
 										v-for="(part, index) in contentParts(message)"
@@ -202,6 +213,9 @@ onBeforeUnmount(() => {
 								</p>
 								<p v-else-if="message.status === 'streaming'" class="nextchat-typing">
 									<span></span><span></span><span></span>
+								</p>
+								<p v-else class="nextchat-message__empty">
+									{{ message.status === "stopped" ? t("workspace.stopped") : t("workspace.emptyResponse") }}
 								</p>
 								<p v-if="message.error" class="nextchat-message__error">
 									{{ message.error }}

@@ -48,6 +48,9 @@ beforeAll(async () => {
 
 		response.writeHead(200, { "Content-Type": "text/event-stream" })
 		response.write(
+			'data: {"choices":[{"delta":{"reasoning_content":"Thinking..."}}]}\n\n'
+		)
+		response.write(
 			'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
 		)
 		response.write(
@@ -79,14 +82,18 @@ afterAll(async () => {
 describe("OpenAI-compatible streaming", () => {
 	it("collects deltas and final usage", async () => {
 		const deltas: string[] = []
+		const reasoningDeltas: string[] = []
 		const result = await completeChat(
 			requestOptions("/stream", {
 				onDelta: (delta) => deltas.push(delta),
+				onReasoningDelta: (delta) => reasoningDeltas.push(delta),
 			})
 		)
 
 		expect(deltas).toEqual(["Hello", " world"])
+		expect(reasoningDeltas).toEqual(["Thinking..."])
 		expect(result.content).toBe("Hello world")
+		expect(result.reasoning).toBe("Thinking...")
 		expect(result.usage).toEqual({
 			promptTokens: 3,
 			completionTokens: 2,

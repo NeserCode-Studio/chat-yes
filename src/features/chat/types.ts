@@ -71,6 +71,7 @@ export interface ChatMessage {
 	role: MessageRole
 	agentId?: string
 	content: string
+	reasoning?: string
 	mentions?: string[]
 	attachments?: ChatAttachment[]
 	status: MessageStatus
@@ -129,6 +130,7 @@ export interface CompletionUsage {
 
 export interface CompletionResult {
 	content: string
+	reasoning?: string
 	usage: CompletionUsage
 	latencyMs: number
 }
@@ -145,6 +147,7 @@ export interface CompletionOptions {
 	streaming: boolean
 	signal?: AbortSignal
 	onDelta?: (delta: string) => void
+	onReasoningDelta?: (delta: string) => void
 }
 
 export interface RunOptions {

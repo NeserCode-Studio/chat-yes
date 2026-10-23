@@ -132,6 +132,13 @@ function stopRun(): void {
 	const current = conversation.value
 	if (!current) return
 	activeRun.value?.abort()
+
+	for (const message of store.getMessages(current.id)) {
+		if (message.role === "assistant" && message.status === "streaming") {
+			store.patchMessage(current.id, message.id, { status: "stopped" })
+		}
+	}
+	store.persistMessages(current.id)
 	store.setConversationStatus(current.id, "stopped")
 }
 

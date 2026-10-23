@@ -9,7 +9,6 @@ import {
 	Search,
 	Trash2,
 } from "@lucide/vue"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useDialogStore } from "@/store"
 import { useChatStore } from "../store"
@@ -146,26 +145,25 @@ function participantsFor(conversationId: string) {
 		</div>
 
 		<footer class="nextchat-sidebar__footer">
-			<div class="nextchat-session__avatars">
-				<AgentAvatar
-					v-for="agent in store.agents.slice(0, 4)"
-					:key="agent.id"
-					:agent="agent"
-					size="sm"
-				/>
-			</div>
-			<span class="text-xs text-muted-foreground">
-				{{ t("workspace.totalAgents", { count: store.agents.length }) }}
-			</span>
-			<Button
-				variant="ghost"
-				size="icon"
-				class="ml-auto size-8 rounded-lg"
+			<button
+				type="button"
+				class="nextchat-sidebar__agents"
 				:title="t('workspace.settings')"
 				@click="dialogs.openSettings()"
 			>
+				<div class="nextchat-session__avatars">
+					<AgentAvatar
+						v-for="agent in store.agents.slice(0, 4)"
+						:key="agent.id"
+						:agent="agent"
+						size="sm"
+					/>
+				</div>
+				<span class="text-xs text-muted-foreground">
+					{{ t("workspace.totalAgents", { count: store.agents.length }) }}
+				</span>
 				<Bot class="size-4" />
-			</Button>
+			</button>
 		</footer>
 	</aside>
 </template>

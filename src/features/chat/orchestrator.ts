@@ -88,6 +88,46 @@ function fallbackUsage(
 	)
 }
 
+async function raceAbort<T>(
+	promise: Promise<T>,
+	signal: AbortSignal
+): Promise<T | null> {
+	if (signal.aborted) return null
+
+	let settled = false
+	let resolveRace: (value: T | null) => void
+	let rejectRace: (error: unknown) => void
+	const race = new Promise<T | null>((resolve, reject) => {
+		resolveRace = resolve
+		rejectRace = reject
+	})
+	const onAbort = () => {
+		if (settled) return
+		settled = true
+		resolveRace(null)
+	}
+
+	promise.then(
+		(value) => {
+			if (settled) return
+			settled = true
+			signal.removeEventListener("abort", onAbort)
+			resolveRace(value)
+		},
+		(error) => {
+			if (settled) return
+			settled = true
+			signal.removeEventListener("abort", onAbort)
+			rejectRace(error)
+		}
+	)
+
+	if (signal.aborted) onAbort()
+	else signal.addEventListener("abort", onAbort, { once: true })
+
+	return race
+}
+
 export async function runConversation(
 	store: ChatStore,
 	conversationId: string,
@@ -196,7 +236,7 @@ export async function runConversation(
 
 				let lastPersist = 0
 				try {
-					const result = await completeChat({
+					const requestPromise = completeChat({
 						endpoint: agent.endpoint,
 						apiKey: store.getAgentSecret(agent.id),
 						model: agent.model,
@@ -208,6 +248,7 @@ export async function runConversation(
 						streaming: agent.streaming,
 						signal: options.signal,
 						onDelta: (delta) => {
+							if (options.signal.aborted) return
 							const current =
 								store
 									.getMessages(conversationId)
@@ -221,7 +262,29 @@ export async function runConversation(
 								lastPersist = now
 							}
 						},
+						onReasoningDelta: (delta) => {
+							if (options.signal.aborted) return
+							const current =
+								store
+									.getMessages(conversationId)
+									.find((item) => item.id === message.id)?.reasoning ?? ""
+							store.patchMessage(conversationId, message.id, {
+								reasoning: current + delta,
+							})
+							const now = Date.now()
+							if (now - lastPersist > 600) {
+								store.persistMessages(conversationId)
+								lastPersist = now
+							}
+						},
 					})
+
+					const result = await raceAbort(requestPromise, options.signal)
+					if (!result) {
+						store.setMessageStatus(conversationId, message.id, "stopped")
+						store.setConversationStatus(conversationId, "stopped")
+						return { status: "stopped", requests }
+					}
 
 					const hasUsage =
 						result.usage.totalTokens > 0 ||
@@ -231,12 +294,13 @@ export async function runConversation(
 						? usageFromCompletion(result.usage, result.latencyMs)
 						: fallbackUsage(
 								context,
-								result.content,
+								result.content + (result.reasoning ?? ""),
 								result.latencyMs
 							)
 
 					store.patchMessage(conversationId, message.id, {
 						content: result.content,
+						reasoning: result.reasoning ?? "",
 						status: "complete",
 						usage,
 					})

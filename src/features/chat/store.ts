@@ -331,7 +331,12 @@ export const useChatStore = defineStore("chat-workspace", () => {
 	function patchMessage(
 		conversationId: string,
 		messageId: string,
-		patch: Partial<Pick<ChatMessage, "content" | "status" | "usage" | "error">>
+		patch: Partial<
+			Pick<
+				ChatMessage,
+				"content" | "reasoning" | "status" | "usage" | "error"
+			>
+		>
 	): void {
 		const message = getMessages(conversationId).find(
 			(item) => item.id === messageId

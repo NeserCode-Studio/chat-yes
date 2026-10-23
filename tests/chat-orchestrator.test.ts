@@ -4,6 +4,7 @@ import { completeChat } from "../src/features/chat/api"
 import { createId } from "../src/features/chat/ids"
 import { runConversation } from "../src/features/chat/orchestrator"
 import { useChatStore } from "../src/features/chat/store"
+import type { CompletionResult } from "../src/features/chat/types"
 
 vi.mock("../src/features/chat/api", () => {
 	class ChatApiError extends Error {
@@ -83,9 +84,11 @@ describe("conversation orchestration", () => {
 
 	it("runs an explicit first turn and records usage", async () => {
 		completeChatMock.mockImplementation(async (options) => {
+			options.onReasoningDelta?.("Reasoning")
 			options.onDelta?.("Working on it")
 			return {
 				content: "Working on it",
+				reasoning: "Reasoning",
 				usage: {
 					promptTokens: 10,
 					completionTokens: 3,
@@ -115,6 +118,33 @@ describe("conversation orchestration", () => {
 				(message) => message.role === "assistant"
 			)?.content
 		).toBe("Working on it")
+		expect(
+			store.messagesByConversation[conversation.id].find(
+				(message) => message.role === "assistant"
+			)?.reasoning
+		).toBe("Reasoning")
+	})
+
+	it("stops a pending request immediately", async () => {
+		completeChatMock.mockReturnValue(
+			new Promise<CompletionResult>(() => {})
+		)
+		const { store, conversation } = prepareConversation()
+		const controller = new AbortController()
+		const runPromise = runConversation(store, conversation.id, {
+			signal: controller.signal,
+		})
+
+		controller.abort()
+		const result = await runPromise
+
+		expect(result.status).toBe("stopped")
+		expect(conversation.status).toBe("stopped")
+		expect(
+			store.messagesByConversation[conversation.id].find(
+				(message) => message.role === "assistant"
+			)?.status
+		).toBe("stopped")
 	})
 
 	it("does not block later runs by cumulative request count", async () => {

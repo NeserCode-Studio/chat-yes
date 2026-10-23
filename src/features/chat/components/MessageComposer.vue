@@ -45,6 +45,7 @@ const emojiOpen = ref(false)
 const processingImages = ref(false)
 const notice = ref("")
 const menuIndex = ref(0)
+const caret = ref(0)
 
 const MAX_IMAGES = 2
 const MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -84,12 +85,14 @@ const commands = computed<Array<{ id: CommandId; label: string; hint: string }>>
 )
 
 const slashQuery = computed(() => {
-	const match = content.value.match(/^\/([^\s]*)$/)
+	const text = content.value.slice(0, caret.value)
+	const match = text.match(/^\/([^\s]*)$/)
 	return match ? match[1].toLowerCase() : null
 })
 
 const mentionQuery = computed(() => {
-	const match = content.value.match(/(?:^|\s)@([^\s@]*)$/)
+	const text = content.value.slice(0, caret.value)
+	const match = text.match(/(?:^|\s)@([^\s@]*)$/)
 	return match ? match[1].toLowerCase() : null
 })
 
@@ -145,6 +148,10 @@ function resize(): void {
 	el.style.height = `${Math.min(el.scrollHeight, 180)}px`
 }
 
+function updateCaret(): void {
+	caret.value = textarea.value?.root?.selectionStart ?? content.value.length
+}
+
 function focusAt(position: number): void {
 	const el = textarea.value?.root
 	if (!el) return
@@ -158,6 +165,7 @@ function insertText(text: string): void {
 	const end = el?.selectionEnd ?? content.value.length
 	content.value = `${content.value.slice(0, start)}${text}${content.value.slice(end)}`
 	const position = start + text.length
+	caret.value = position
 	void nextTick(() => {
 		focusAt(position)
 		resize()
@@ -165,11 +173,17 @@ function insertText(text: string): void {
 }
 
 function selectMention(agent: AgentProfile): void {
-	content.value = content.value.replace(
-		/(^|\s)@[^\s@]*$/,
-		`$1@${agent.name} `
-	)
-	const position = content.value.length
+	const before = content.value.slice(0, caret.value)
+	const after = content.value.slice(caret.value)
+	const match = before.match(/(^|\s)@([^\s@]*)$/)
+	if (!match) return
+
+	const start = before.length - match[0].length
+	const token = `${match[1] ?? ""}@${agent.name}`
+	const suffix = /^\s/.test(after) ? after : ` ${after}`
+	content.value = `${before.slice(0, start)}${token}${suffix}`
+	const position = start + token.length
+	caret.value = position
 	void nextTick(() => {
 		focusAt(position)
 		resize()
@@ -178,6 +192,7 @@ function selectMention(agent: AgentProfile): void {
 
 function runCommand(command: CommandId): void {
 	content.value = ""
+	caret.value = 0
 	if (command === "clear") {
 		images.value = []
 		notice.value = ""
@@ -222,6 +237,7 @@ function send(): void {
 	images.value = []
 	notice.value = ""
 	emojiOpen.value = false
+	caret.value = 0
 	void nextTick(resize)
 }
 
@@ -245,6 +261,11 @@ function keydown(event: KeyboardEvent): void {
 			return
 		}
 		if (event.key === "Enter" && !event.shiftKey) {
+			event.preventDefault()
+			chooseMenu()
+			return
+		}
+		if (event.key === "Tab" && !event.shiftKey) {
 			event.preventDefault()
 			chooseMenu()
 			return
@@ -528,6 +549,9 @@ function removeImage(id: string): void {
 				:disabled="disabled || running"
 				class="nextchat-composer__input"
 				@input="resize"
+				@click="updateCaret"
+				@focus="updateCaret"
+				@keyup="updateCaret"
 				@keydown="keydown"
 				@paste="paste"
 			/>

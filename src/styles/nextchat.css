@@ -208,6 +208,38 @@ body,
   border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
 }
 
+.nextchat-sidebar__agents {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  padding: 7px 9px;
+  color: var(--foreground);
+  text-align: left;
+  box-shadow: var(--nextchat-card-shadow);
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.nextchat-sidebar__agents:hover,
+.nextchat-sidebar__agents:focus-visible {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--card) 82%, var(--accent));
+}
+
+.nextchat-sidebar__agents svg {
+  margin-left: auto;
+  color: var(--muted-foreground);
+}
+
+.nextchat-sidebar__agents:hover svg,
+.nextchat-sidebar__agents:focus-visible svg {
+  color: var(--primary);
+}
+
 .nextchat-session {
   position: relative;
   display: flex;
@@ -386,6 +418,15 @@ body,
 
 .nextchat-shell.is-sidebar-collapsed .nextchat-sidebar__footer {
   flex-direction: column;
+}
+
+.nextchat-shell.is-sidebar-collapsed .nextchat-sidebar__agents {
+  flex-direction: column;
+  padding: 7px;
+}
+
+.nextchat-shell.is-sidebar-collapsed .nextchat-sidebar__agents svg {
+  margin-left: 0;
 }
 
 .nextchat-main {
@@ -698,6 +739,7 @@ body,
   font-size: var(--chat-font-size);
   line-height: 1.7;
   box-shadow: 0 1px 2px rgb(0 0 0 / 3%);
+  user-select: text;
 }
 
 .nextchat-message.is-user .nextchat-message__bubble {
@@ -717,6 +759,65 @@ body,
 .nextchat-message__content {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+  cursor: text;
+  user-select: text;
+}
+
+.nextchat-message__empty {
+  display: inline-flex;
+  align-items: center;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  padding: 5px 8px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.nextchat-reasoning {
+  margin-bottom: 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--primary) 5%, var(--card));
+}
+
+.nextchat-reasoning summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 9px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  list-style: none;
+  user-select: none;
+}
+
+.nextchat-reasoning summary::-webkit-details-marker {
+  display: none;
+}
+
+.nextchat-reasoning summary svg:last-child {
+  margin-left: auto;
+  transition: transform 150ms ease;
+}
+
+.nextchat-reasoning[open] summary svg:last-child {
+  transform: rotate(180deg);
+}
+
+.nextchat-reasoning__content {
+  margin: 0;
+  padding: 0 9px 9px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
 }
 
 .nextchat-message__images {
@@ -1593,6 +1694,15 @@ body,
 
   .nextchat-sidebar__footer {
     flex-direction: column;
+  }
+
+  .nextchat-sidebar__agents {
+    flex-direction: column;
+    padding: 7px;
+  }
+
+  .nextchat-sidebar__agents svg {
+    margin-left: 0;
   }
 
   .nextchat-header {
