@@ -1406,6 +1406,12 @@ body,
   margin-top: 18px;
 }
 
+.nextchat-settings__nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
 .nextchat-settings__nav-label {
   display: flex;
   align-items: center;
@@ -1438,8 +1444,19 @@ body,
 }
 
 .nextchat-settings__nav-item.is-active {
-  background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--primary) 42%, var(--border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--card));
   color: var(--primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+.nextchat-settings__nav-item.is-active svg {
+  color: var(--primary);
+}
+
+.nextchat-settings__nav-item.is-active:hover {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  background: color-mix(in srgb, var(--primary) 16%, var(--card));
   box-shadow: var(--nextchat-card-shadow);
 }
 
