@@ -1,8 +1,8 @@
+use std::collections::BTreeMap;
 use tauri::{
-    Manager,
     image::Image,
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Position, Size,
+    Emitter, Manager, Position, Size,
 };
 
 const SECRET_SERVICE: &str = "Chat Yes";
@@ -31,7 +31,9 @@ fn agent_secret_set(agent_id: String, secret: String) -> Result<(), String> {
         return Err("Secret is required".to_string());
     }
 
-    secret_entry(&agent_id)?.set_password(secret.trim()).map_err(|error| error.to_string())
+    secret_entry(&agent_id)?
+        .set_password(secret.trim())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -42,6 +44,158 @@ fn agent_secret_remove(agent_id: String) -> Result<(), String> {
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(error.to_string()),
     }
+}
+
+fn normalize_font_family_names(names: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut unique = BTreeMap::<String, String>::new();
+
+    for raw_name in names {
+        let name = raw_name
+            .trim()
+            .trim_start_matches('\u{feff}')
+            .trim()
+            .to_string();
+        if name.is_empty() {
+            continue;
+        }
+        unique.entry(name.to_lowercase()).or_insert_with(|| name);
+    }
+
+    let mut names = unique.into_values().collect::<Vec<_>>();
+    names.sort_by_key(|name| name.to_lowercase());
+    names
+}
+
+#[cfg(target_os = "windows")]
+fn installed_font_families() -> Result<Vec<String>, String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    const SCRIPT: &str = r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Drawing
+$collection = [System.Drawing.Text.InstalledFontCollection]::new()
+$collection.Families | ForEach-Object { $_.Name }
+"#;
+
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            SCRIPT,
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|error| format!("Failed to start the Windows font reader: {error}"))?;
+
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if detail.is_empty() {
+            "The Windows font reader exited unexpectedly".to_string()
+        } else {
+            detail
+        });
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|error| format!("The Windows font reader returned invalid UTF-8: {error}"))?;
+    Ok(normalize_font_family_names(
+        stdout.lines().map(ToString::to_string),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn installed_font_families() -> Result<Vec<String>, String> {
+    use serde_json::Value;
+    use std::process::Command;
+
+    fn collect_families(value: &Value, families: &mut Vec<String>) {
+        match value {
+            Value::Object(entries) => {
+                if let Some(Value::String(family)) = entries.get("family") {
+                    families.push(family.clone());
+                }
+                for (key, child) in entries {
+                    if key != "family" {
+                        collect_families(child, families);
+                    }
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    collect_families(item, families);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let output = Command::new("system_profiler")
+        .args(["SPFontsDataType", "-json"])
+        .output()
+        .map_err(|error| format!("Failed to start the macOS font reader: {error}"))?;
+
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if detail.is_empty() {
+            "The macOS font reader exited unexpectedly".to_string()
+        } else {
+            detail
+        });
+    }
+
+    let report: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("Failed to parse the macOS font report: {error}"))?;
+    let mut families = Vec::new();
+    collect_families(&report, &mut families);
+    Ok(normalize_font_family_names(families))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn installed_font_families() -> Result<Vec<String>, String> {
+    use std::process::Command;
+
+    let output = Command::new("fc-list")
+        .args(["--format=%{family}\\n"])
+        .output()
+        .map_err(|error| format!("Failed to start fontconfig: {error}"))?;
+
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if detail.is_empty() {
+            "fontconfig exited unexpectedly".to_string()
+        } else {
+            detail
+        });
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|error| format!("fontconfig returned invalid UTF-8: {error}"))?;
+    Ok(normalize_font_family_names(
+        stdout
+            .lines()
+            .flat_map(|line| line.split(','))
+            .map(ToString::to_string),
+    ))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
+fn installed_font_families() -> Result<Vec<String>, String> {
+    Err("Reading installed fonts is not supported on this platform".to_string())
+}
+
+#[tauri::command]
+fn list_local_fonts() -> Result<Vec<String>, String> {
+    let fonts = installed_font_families()?;
+    if fonts.is_empty() {
+        return Err("No installed font families were found".to_string());
+    }
+    Ok(fonts)
 }
 
 #[tauri::command]
@@ -116,10 +270,13 @@ pub fn run() {
 
                     if is_right {
                         if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            let _ = window.emit("tray-popup", serde_json::json!({
-                                "x": (rx + rw / 2.0) as i32,
-                                "y": ry as i32,
-                            }));
+                            let _ = window.emit(
+                                "tray-popup",
+                                serde_json::json!({
+                                    "x": (rx + rw / 2.0) as i32,
+                                    "y": ry as i32,
+                                }),
+                            );
                         }
                     } else {
                         toggle_main_window(tray.app_handle());
@@ -136,8 +293,40 @@ pub fn run() {
             open_devtools,
             agent_secret_get,
             agent_secret_set,
-            agent_secret_remove
+            agent_secret_remove,
+            list_local_fonts
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_font_family_names;
+
+    #[test]
+    fn normalizes_and_sorts_installed_font_families() {
+        assert_eq!(
+            normalize_font_family_names(vec![
+                " Segoe UI ".to_string(),
+                "\u{feff}微软雅黑".to_string(),
+                "segoe ui".to_string(),
+                String::new(),
+                "Aptos".to_string(),
+            ]),
+            vec![
+                "Aptos".to_string(),
+                "Segoe UI".to_string(),
+                "微软雅黑".to_string(),
+            ]
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn reads_installed_windows_font_families() {
+        let fonts = super::installed_font_families()
+            .expect("the Windows font reader should return installed families");
+        assert!(!fonts.is_empty());
+    }
 }

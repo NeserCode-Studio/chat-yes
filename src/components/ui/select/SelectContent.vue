@@ -23,7 +23,7 @@ const props = withDefaults(defineProps<Omit<SelectContentProps, 'class'> & { cla
       <SelectViewport
         :class="cn(
           'p-1',
-          props.position === 'popper' && 'h-[var(--reka-select-trigger-height)] w-full min-w-[var(--reka-select-trigger-width)]'
+          props.position === 'popper' && 'min-h-[var(--reka-select-trigger-height)] w-full min-w-[var(--reka-select-trigger-width)]'
         )"
       >
         <slot />

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue"
-import { Check, Pencil, Plus, Unlink, X } from "@lucide/vue"
+import { Check, Layers, Pencil, Plus, Unlink, X } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -65,6 +65,22 @@ function confirmSave(): void {
 				<SelectValue :placeholder="placeholder" />
 			</SelectTrigger>
 			<SelectContent>
+				<SelectItem
+					v-if="!items.length"
+					value="__empty-preset__"
+					disabled
+					class="nextchat-preset-picker__empty-option"
+				>
+					<div class="nextchat-preset-picker__empty">
+						<span class="nextchat-preset-picker__empty-icon">
+							<Layers class="size-4" />
+						</span>
+						<span class="nextchat-preset-picker__empty-copy">
+							<strong>{{ t("settings.presetEmpty") }}</strong>
+							<small>{{ t("settings.presetEmptyHint") }}</small>
+						</span>
+					</div>
+				</SelectItem>
 				<SelectItem
 					v-for="item in items"
 					:key="item.id"

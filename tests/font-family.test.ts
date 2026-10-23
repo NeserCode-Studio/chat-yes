@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
 	DEFAULT_CHAT_FONT_FAMILY,
+	normalizeInstalledFontFamilies,
 	parseFontFamilyStack,
 	serializeFontFamilyStack,
 } from "../src/features/chat/font-family"
@@ -34,5 +35,18 @@ describe("chat font family stacks", () => {
 				"serif"
 			)
 		).toBe('"LXGW WenKai", "Segoe UI", serif')
+	})
+
+	it("normalizes, deduplicates and sorts installed font families", () => {
+		expect(
+			normalizeInstalledFontFamilies([
+				" Segoe UI ",
+				"@Microsoft YaHei",
+				"\uFEFFAptos",
+				"segoe ui",
+				"sans-serif",
+				"LXGW WenKai",
+			])
+		).toEqual(["Aptos", "LXGW WenKai", "Segoe UI"])
 	})
 })

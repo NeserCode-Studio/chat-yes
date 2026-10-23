@@ -31,10 +31,38 @@ export function isGenericFontFamily(value: string): boolean {
 export function normalizeFontFamilyName(value: string): string {
 	return value
 		.trim()
+		.replace(/^\uFEFF/, "")
 		.replace(/^["']|["']$/g, "")
 		.replace(/[\r\n,"']/g, " ")
 		.replace(/\s+/g, " ")
 		.trim()
+}
+
+export function normalizeInstalledFontFamilies(
+	values: readonly string[]
+): string[] {
+	const seen = new Set<string>()
+	return values
+		.map(normalizeFontFamilyName)
+		.filter((font) => {
+			const key = font.toLowerCase()
+			if (
+				!font ||
+				font.startsWith("@") ||
+				isGenericFontFamily(font) ||
+				seen.has(key)
+			) {
+				return false
+			}
+			seen.add(key)
+			return true
+		})
+		.sort((left, right) =>
+			left.localeCompare(right, undefined, {
+				numeric: true,
+				sensitivity: "base",
+			})
+		)
 }
 
 export function parseFontFamilyStack(value: string): string[] {
