@@ -83,6 +83,7 @@ import type {
 import { validateAgent } from "../validation"
 import AgentAvatar from "./AgentAvatar.vue"
 import ConfirmDialog from "./ConfirmDialog.vue"
+import FontFamilyPicker from "./FontFamilyPicker.vue"
 import PresetEditDialog from "./PresetEditDialog.vue"
 import SettingsPresetPicker from "./SettingsPresetPicker.vue"
 
@@ -962,7 +963,7 @@ function formatDuration(value: number): string {
 									<p class="nextchat-settings-row__subtitle">{{ t("settings.fontFamilyHint") }}</p>
 								</div>
 								<div class="nextchat-settings-row__control is-wide">
-									<Input v-model="appearance.fontFamily" />
+									<FontFamilyPicker v-model="appearance.fontFamily" />
 								</div>
 							</div>
 
