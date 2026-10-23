@@ -2,6 +2,7 @@
 import { computed, ref } from "vue"
 import {
 	Bot,
+	Download,
 	MessageSquarePlus,
 	MessagesSquare,
 	PanelLeftClose,
@@ -22,6 +23,7 @@ defineProps<{
 const emit = defineEmits<{
 	create: []
 	delete: [conversationId: string]
+	export: [conversationId: string]
 	toggle: []
 }>()
 
@@ -127,14 +129,24 @@ function participantsFor(conversationId: string) {
 						</div>
 					</div>
 				</div>
-				<button
-					type="button"
-					class="nextchat-session__delete inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-destructive"
-					:title="t('workspace.deleteSession')"
-					@click.stop="emit('delete', conversation.id)"
-				>
-					<Trash2 class="size-3.5" />
-				</button>
+				<div class="nextchat-session__actions">
+					<button
+						type="button"
+						class="nextchat-session__action nextchat-session__export inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+						:title="t('workspace.exportSession')"
+						@click.stop="emit('export', conversation.id)"
+					>
+						<Download class="size-3.5" />
+					</button>
+					<button
+						type="button"
+						class="nextchat-session__action nextchat-session__delete inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-destructive"
+						:title="t('workspace.deleteSession')"
+						@click.stop="emit('delete', conversation.id)"
+					>
+						<Trash2 class="size-3.5" />
+					</button>
+				</div>
 			</div>
 
 			<div v-if="!filteredConversations.length" class="nextchat-sidebar__empty">

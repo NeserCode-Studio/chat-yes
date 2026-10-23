@@ -341,16 +341,23 @@ body,
   background: #c98524;
 }
 
-.nextchat-session__delete {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+.nextchat-session__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
   opacity: 0;
   transition: opacity 150ms ease;
 }
 
-.nextchat-session:hover .nextchat-session__delete,
-.nextchat-session:focus-within .nextchat-session__delete {
+.nextchat-session__action {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+}
+
+.nextchat-session:hover .nextchat-session__actions,
+.nextchat-session:focus-within .nextchat-session__actions {
   opacity: 1;
 }
 
@@ -376,7 +383,7 @@ body,
 .nextchat-shell.is-sidebar-collapsed .nextchat-sidebar__search svg,
 .nextchat-shell.is-sidebar-collapsed .nextchat-sidebar__new span,
 .nextchat-shell.is-sidebar-collapsed .nextchat-session__copy,
-.nextchat-shell.is-sidebar-collapsed .nextchat-session__delete,
+.nextchat-shell.is-sidebar-collapsed .nextchat-session__actions,
 .nextchat-shell.is-sidebar-collapsed .nextchat-sidebar__footer span {
   display: none;
 }
@@ -1750,7 +1757,7 @@ body,
   .nextchat-sidebar__empty strong,
   .nextchat-sidebar__empty p,
   .nextchat-session__copy,
-  .nextchat-session__delete,
+  .nextchat-session__actions,
   .nextchat-sidebar__footer span {
     display: none;
   }

@@ -1,0 +1,135 @@
+import { describe, expect, it } from "vitest"
+import { createAgentProfile, createMemoryEntry } from "../src/features/chat/domain"
+import {
+	CONVERSATION_EXPORT_VERSION,
+	conversationExportFilename,
+	createConversationExport,
+} from "../src/features/chat/export"
+import type {
+	AgentProfile,
+	ChatMessage,
+	Conversation,
+} from "../src/features/chat/types"
+
+function prepareExport() {
+	const agent = createAgentProfile()
+	agent.name = "Researcher"
+	agent.model = "test-model"
+	agent.systemPrompt = "Investigate the question carefully."
+	agent.memories = [createMemoryEntry("Prefer evidence over guesses.")]
+	const unsafeAgent = agent as AgentProfile & { apiKey?: string }
+	unsafeAgent.apiKey = "must-not-be-exported"
+	const conversation: Conversation = {
+		id: "conversation-1",
+		title: "Reasoning diagnosis",
+		participantIds: [agent.id],
+		mode: "relay",
+		roundLimit: 2,
+		requestLimit: 4,
+		tokenBudget: 50000,
+		status: "idle",
+		usage: {
+			promptTokens: 30,
+			completionTokens: 20,
+			totalTokens: 50,
+			requestCount: 1,
+			latencyMs: 120,
+		},
+		lastMessagePreview: "Answer",
+		createdAt: 1,
+		updatedAt: 2,
+	}
+	const messages: ChatMessage[] = [
+		{
+			id: "user-1",
+			conversationId: conversation.id,
+			role: "user",
+			content: "Why is the reasoning longer?",
+			status: "complete",
+			createdAt: 3,
+		},
+		{
+			id: "event-1",
+			conversationId: conversation.id,
+			role: "event",
+			content: "Run started",
+			status: "complete",
+			createdAt: 4,
+		},
+		{
+			id: "assistant-1",
+			conversationId: conversation.id,
+			role: "assistant",
+			agentId: agent.id,
+			content: "Answer",
+			reasoning: "Detailed internal reasoning",
+			status: "complete",
+			createdAt: 5,
+			usage: {
+				promptTokens: 30,
+				completionTokens: 20,
+				totalTokens: 50,
+				requestCount: 1,
+				latencyMs: 120,
+			},
+		},
+	]
+
+	return { agent, conversation, messages }
+}
+
+describe("conversation export", () => {
+	it("includes configuration, messages, events and reasoning without secrets", () => {
+		const { agent, conversation, messages } = prepareExport()
+		const exportedAt = new Date("2026-10-24T04:30:00.000Z")
+
+		const data = createConversationExport({
+			conversation,
+			agents: [agent],
+			messages,
+			exportedAt,
+		})
+		const serialized = JSON.stringify(data)
+
+		expect(data.schema).toBe("chat-yes.conversation-export")
+		expect(data.version).toBe(CONVERSATION_EXPORT_VERSION)
+		expect(data.exportedAt).toBe(exportedAt.toISOString())
+		expect(data.security.apiKeysIncluded).toBe(false)
+		expect(data.conversation.mode).toBe("relay")
+		expect(data.participants[0].systemPrompt).toBe(
+			"Investigate the question carefully."
+		)
+		expect(data.participants[0].memories[0].content).toBe(
+			"Prefer evidence over guesses."
+		)
+		expect(data.messages.map((message) => message.role)).toEqual([
+			"user",
+			"event",
+			"assistant",
+		])
+		expect(data.messages[2].reasoning).toBe("Detailed internal reasoning")
+		expect(data.requestContexts[0].messages[0].content).toContain(
+			"Group mode: relay"
+		)
+		expect(data.requestContexts[0].messages[0].content).toContain(
+			"Investigate the question carefully."
+		)
+		expect(serialized).not.toContain("must-not-be-exported")
+		expect(serialized).not.toContain('"apiKey"')
+	})
+
+	it("creates a filesystem-safe filename", () => {
+		const { conversation } = prepareExport()
+		conversation.title = 'Reasoning:/\\?* "audit"'
+		const exportedAt = new Date("2026-10-24T04:30:00.000Z")
+
+		const filename = conversationExportFilename(conversation, exportedAt)
+
+		expect(filename).toBe(
+			"chat-yes-Reasoning-audit-2026-10-24T04-30-00-000Z.json"
+		)
+		for (const character of '<>:"/\\|?*') {
+			expect(filename).not.toContain(character)
+		}
+	})
+})
