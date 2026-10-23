@@ -836,14 +836,20 @@ body,
 
 .nextchat-reasoning__preview {
   overflow: hidden;
+  max-height: 6.6em;
   margin-bottom: 9px;
   padding: 0 9px;
   color: var(--muted-foreground);
   font-size: 12px;
   line-height: 1.65;
   overflow-wrap: anywhere;
+  scrollbar-width: none;
   white-space: pre-wrap;
   user-select: text;
+}
+
+.nextchat-reasoning__preview::-webkit-scrollbar {
+  display: none;
 }
 
 .nextchat-message__images {

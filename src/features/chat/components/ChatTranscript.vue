@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import {
+	computed,
+	nextTick,
+	onBeforeUnmount,
+	onMounted,
+	onUpdated,
+	ref,
+	watch,
+} from "vue"
 import {
 	AlertTriangle,
 	Check,
@@ -40,6 +48,7 @@ const transcriptScroll = ref<{
 } | null>(null)
 const copiedId = ref("")
 const reasoningViewStates = ref<Record<string, ReasoningView>>({})
+const reasoningPreviews = new Map<string, HTMLElement>()
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 const lastMessageSignature = computed(() => {
@@ -100,7 +109,14 @@ function scrollToBottom(): void {
 	})
 }
 
-onMounted(scrollToBottom)
+onMounted(() => {
+	scrollToBottom()
+	scrollReasoningPreviews()
+})
+
+onUpdated(() => {
+	scrollReasoningPreviews()
+})
 
 watch(lastMessageSignature, scrollToBottom, { flush: "post" })
 
@@ -138,6 +154,27 @@ function setReasoningView(id: string, view: ReasoningView): void {
 	reasoningViewStates.value = {
 		...reasoningViewStates.value,
 		[id]: view,
+	}
+	void nextTick(() => {
+		requestAnimationFrame(scrollReasoningPreviews)
+	})
+}
+
+function setReasoningPreview(id: string, element: unknown): void {
+	if (element instanceof HTMLElement) {
+		reasoningPreviews.set(id, element)
+	} else {
+		reasoningPreviews.delete(id)
+	}
+}
+
+function scrollReasoningPreviews(): void {
+	for (const [id, element] of reasoningPreviews) {
+		if (!element.isConnected) {
+			reasoningPreviews.delete(id)
+			continue
+		}
+		element.scrollTop = element.scrollHeight
 	}
 }
 
@@ -390,7 +427,8 @@ onBeforeUnmount(() => {
 									</p>
 									<p
 										v-else-if="reasoningView(message) === 'normal'"
-										class="nextchat-reasoning__preview line-clamp-4"
+										class="nextchat-reasoning__preview"
+										:ref="(element) => setReasoningPreview(message.id, element)"
 									>
 										{{ message.reasoning }}
 									</p>
