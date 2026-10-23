@@ -229,12 +229,26 @@ function chooseMenu(index = menuIndex.value): void {
 }
 
 function parseMentions(text: string): string[] {
-	return props.agents
-		.filter((agent) => {
-			const escaped = agent.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-			return new RegExp(`@${escaped}(?=\\s|$|[，。,.!?])`).test(text)
-		})
-		.map((agent) => agent.id)
+	const agentsByName = new Map(
+		props.agents
+			.filter((agent) => agent.name)
+			.map((agent) => [agent.name, agent])
+	)
+	if (!agentsByName.size) return []
+
+	const escapedNames = [...agentsByName.keys()]
+		.sort((left, right) => right.length - left.length)
+		.map((name) =>
+			name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+		)
+	const pattern = new RegExp(
+		`@(${escapedNames.join("|")})(?=\\s|$|[，。,.!?])`,
+		"g"
+	)
+
+	return [...text.matchAll(pattern)]
+		.map((match) => agentsByName.get(match[1])?.id ?? "")
+		.filter(Boolean)
 }
 
 function send(): void {

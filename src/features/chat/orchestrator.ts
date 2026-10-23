@@ -163,14 +163,13 @@ export async function runConversation(
 		}
 	}
 
-	const participantIds = new Set(options.targetAgentIds ?? [])
-	const participants = conversation.participantIds
+	const turnAgentIds =
+		options.targetAgentIds?.filter(Boolean).length
+			? options.targetAgentIds.filter(Boolean)
+			: conversation.participantIds
+	const participants = turnAgentIds
 		.map((id) => store.getAgent(id))
 		.filter((agent): agent is AgentProfile => Boolean(agent))
-		.filter(
-			(agent) =>
-				!participantIds.size || participantIds.has(agent.id)
-		)
 	if (!participants.length) {
 		return { status: "error", requests: 0, message: "No participants selected" }
 	}
@@ -208,7 +207,7 @@ export async function runConversation(
 					conversation,
 					round,
 					participantIndex,
-					participantIds.has(agent.id),
+					turnAgentIds.includes(agent.id),
 					requests
 				)
 				if (blocked) {

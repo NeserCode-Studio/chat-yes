@@ -320,4 +320,37 @@ describe("conversation orchestration", () => {
 			)?.agentId
 		).toBe(mentioned.id)
 	})
+
+	it("preserves duplicate mention order as turn targets", async () => {
+		const { store, agent, conversation } = prepareConversation()
+		const second = store.addAgent()
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.model = "first-model"
+		agent.maxTokens = 100
+		second.endpoint = "http://localhost:1234/v1"
+		second.model = "second-model"
+		second.maxTokens = 100
+		conversation.roundLimit = 1
+		conversation.requestLimit = 4
+		completeChatMock.mockImplementation(async (options) => ({
+			content: `Response from ${options.model}`,
+			usage: {
+				promptTokens: 8,
+				completionTokens: 3,
+				totalTokens: 11,
+			},
+			latencyMs: 70,
+		}))
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+			targetAgentIds: [agent.id, second.id, agent.id],
+		})
+
+		expect(result.status).toBe("completed")
+		expect(completeChatMock).toHaveBeenCalledTimes(3)
+		expect(
+			completeChatMock.mock.calls.map((call) => call[0].model)
+		).toEqual(["first-model", "second-model", "first-model"])
+	})
 })
