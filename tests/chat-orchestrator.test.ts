@@ -125,9 +125,9 @@ describe("conversation orchestration", () => {
 		).toBe("Reasoning")
 	})
 
-	it("stops after the model signals that its reply is complete", async () => {
+	it("stops after one round when the model does not request continuation", async () => {
 		completeChatMock.mockResolvedValue({
-			content: "Hello!<conversation_complete>",
+			content: "Hello!",
 			usage: {
 				promptTokens: 10,
 				completionTokens: 3,
@@ -153,9 +153,46 @@ describe("conversation orchestration", () => {
 		).toBe("Hello!")
 	})
 
+	it("continues only when the model explicitly requests another round", async () => {
+		completeChatMock
+			.mockResolvedValueOnce({
+				content: "I need one more review.<conversation_continue>",
+				usage: {
+					promptTokens: 10,
+					completionTokens: 5,
+					totalTokens: 15,
+				},
+				latencyMs: 100,
+			})
+			.mockResolvedValueOnce({
+				content: "Review complete.",
+				usage: {
+					promptTokens: 12,
+					completionTokens: 3,
+					totalTokens: 15,
+				},
+				latencyMs: 90,
+			})
+		const { store, conversation } = prepareConversation()
+		conversation.roundLimit = 3
+		conversation.requestLimit = 3
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result.status).toBe("completed")
+		expect(completeChatMock).toHaveBeenCalledTimes(2)
+		expect(
+			store.messagesByConversation[conversation.id]
+				.filter((message) => message.role === "assistant")
+				.map((message) => message.content)
+		).toEqual(["I need one more review.", "Review complete."])
+	})
+
 	it("discards a signal-only turn and keeps its usage", async () => {
 		completeChatMock.mockResolvedValue({
-			content: "<conversation_complete>",
+			content: "<conversation_continue>",
 			usage: {
 				promptTokens: 8,
 				completionTokens: 2,
@@ -164,8 +201,8 @@ describe("conversation orchestration", () => {
 			latencyMs: 80,
 		})
 		const { store, conversation } = prepareConversation()
-		conversation.roundLimit = 3
-		conversation.requestLimit = 3
+		conversation.roundLimit = 1
+		conversation.requestLimit = 1
 
 		const result = await runConversation(store, conversation.id, {
 			signal: new AbortController().signal,

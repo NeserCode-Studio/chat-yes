@@ -1,11 +1,12 @@
 import { completeChat, ChatApiError } from "./api"
 import {
 	buildAgentContext,
-	CONVERSATION_COMPLETE_TAG,
+	CONVERSATION_CONTINUE_TAG,
 	estimateApiContentTokens,
 	estimateTokens,
+	stripTurnControlSignal,
+	TURN_CONTROL_TAGS,
 	usageFromCompletion,
-	stripCompletionSignal,
 } from "./domain"
 import { createId } from "./ids"
 import type { ChatStore } from "./store-types"
@@ -97,8 +98,9 @@ function streamingDisplayContent(content: string): string {
 		index >= 0;
 		index = lower.lastIndexOf("<", index - 1)
 	) {
-		if (CONVERSATION_COMPLETE_TAG.startsWith(lower.slice(index))) {
-			return content.slice(0, index)
+		const suffix = lower.slice(index)
+		for (const tag of TURN_CONTROL_TAGS) {
+			if (tag.startsWith(suffix)) return content.slice(0, index)
 		}
 	}
 	return content
@@ -189,6 +191,7 @@ export async function runConversation(
 
 	try {
 		for (let round = 1; round <= conversation.roundLimit; round += 1) {
+			let continueRequested = false
 			for (
 				let participantIndex = 0;
 				participantIndex < participants.length;
@@ -313,18 +316,17 @@ export async function runConversation(
 								result.content + (result.reasoning ?? ""),
 								result.latencyMs
 							)
-					const isConversationComplete = result.content
+					const requestsContinuation = result.content
 						.toLowerCase()
-						.includes(CONVERSATION_COMPLETE_TAG)
-					const visibleContent = isConversationComplete
-						? stripCompletionSignal(result.content)
-						: result.content
+						.includes(CONVERSATION_CONTINUE_TAG)
+					const visibleContent = stripTurnControlSignal(result.content)
 
-					if (isConversationComplete && !visibleContent) {
+					if (!visibleContent) {
 						store.removeMessage(conversationId, message.id)
 						store.addConversationUsage(conversationId, usage)
-						store.setConversationStatus(conversationId, "idle")
-						return { status: "completed", requests: requests + 1 }
+						requests += 1
+						continueRequested ||= requestsContinuation
+						continue
 					}
 
 					store.patchMessage(conversationId, message.id, {
@@ -336,11 +338,7 @@ export async function runConversation(
 					store.addConversationUsage(conversationId, usage)
 					store.persistMessages(conversationId)
 					requests += 1
-
-					if (isConversationComplete) {
-						store.setConversationStatus(conversationId, "idle")
-						return { status: "completed", requests }
-					}
+					continueRequested ||= requestsContinuation
 				} catch (error) {
 					if (options.signal.aborted) {
 						store.setMessageStatus(conversationId, message.id, "stopped")
@@ -363,6 +361,8 @@ export async function runConversation(
 					return { status: "error", requests, message: detail }
 				}
 			}
+
+			if (!continueRequested) break
 		}
 
 		store.setConversationStatus(conversationId, "idle")

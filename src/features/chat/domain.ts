@@ -13,7 +13,13 @@ import type {
 import { AGENT_ACCENTS, EMPTY_USAGE } from "./types"
 import { createId } from "./ids"
 
-export const CONVERSATION_COMPLETE_TAG = "<conversation_complete>"
+export const CONVERSATION_CONTINUE_TAG = "<conversation_continue>"
+
+const LEGACY_CONVERSATION_COMPLETE_TAG = "<conversation_complete>"
+export const TURN_CONTROL_TAGS = [
+	CONVERSATION_CONTINUE_TAG,
+	LEGACY_CONVERSATION_COMPLETE_TAG,
+]
 
 export const DEFAULT_PERMISSIONS: AgentPermissions = {
 	shareConversation: true,
@@ -35,8 +41,8 @@ const PRESET_PROMPTS: Record<AgentPreset, string> = {
 
 const TURN_CONTROL_PROMPT = [
 	"Conversation continuation rules:",
-	`- If your reply fully satisfies the user's latest request and no other participant needs to act, end your reply with ${CONVERSATION_COMPLETE_TAG}.`,
-	"- If another participant or a follow-up turn is required, omit that marker.",
+	`- If another participant or a follow-up turn is required, end your reply with ${CONVERSATION_CONTINUE_TAG}.`,
+	"- Otherwise omit that marker; the run will end after the current round.",
 	"- Never explain the marker; the application removes it from the visible reply.",
 ].join("\n")
 
@@ -144,8 +150,11 @@ export function aggregateMessageUsage(messages: ChatMessage[]): TokenUsage {
 	)
 }
 
-export function stripCompletionSignal(content: string): string {
-	return content.split(CONVERSATION_COMPLETE_TAG).join("").trim()
+export function stripTurnControlSignal(content: string): string {
+	return TURN_CONTROL_TAGS.reduce(
+		(result, tag) => result.split(tag).join(""),
+		content
+	).trim()
 }
 
 export function buildAgentContext(
