@@ -74,7 +74,7 @@ onBeforeUnmount(() => {
 function createSession(): void {
 	if (!canStartConversation.value) {
 		store.addAgent()
-		dialogs.openSettings()
+		dialogs.openSettings("ai")
 		return
 	}
 	store.addConversation()
@@ -173,13 +173,13 @@ function stopRun(): void {
 function handleComposerCommand(command: "new" | "stop" | "settings" | "clear"): void {
 	if (command === "new") createSession()
 	else if (command === "stop") stopRun()
-	else if (command === "settings") dialogs.openSettings()
+	else if (command === "settings") dialogs.openSettings("application")
 }
 
 function configureAgent(agentId?: string): void {
 	if (agentId) store.selectedAgentId = agentId
 	inspectorOpen.value = false
-	dialogs.openSettings()
+	dialogs.openSettings("ai")
 }
 
 function handleWindowKeydown(event: KeyboardEvent): void {
@@ -240,7 +240,7 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 							type="button"
 							class="nextchat-icon-button"
 							:title="t('workspace.settings')"
-							@click="dialogs.openSettings()"
+							@click="dialogs.openSettings('application')"
 						>
 							<Settings2 class="size-4" />
 						</button>
@@ -287,7 +287,7 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 							type="button"
 							class="nextchat-icon-button"
 							:title="t('workspace.settings')"
-							@click="dialogs.openSettings()"
+							@click="dialogs.openSettings('application')"
 						>
 							<Settings2 class="size-4" />
 						</button>

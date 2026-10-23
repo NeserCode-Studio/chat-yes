@@ -91,4 +91,31 @@ describe("chat store recovery", () => {
 			)
 		).toEqual([{ ...message, status: "stopped" }])
 	})
+
+	it("normalizes conversation settings before they reach the orchestrator", async () => {
+		setActivePinia(createPinia())
+		const store = useChatStore()
+		await store.initialize()
+		const agent = store.addAgent()
+		const conversation = store.addConversation([agent.id])
+
+		store.updateConversationSettings(conversation.id, {
+			title: "  Normalized session  ",
+			mode: "relay",
+			roundLimit: 0,
+			requestLimit: 0,
+			tokenBudget: 0,
+		})
+
+		const updated = store.getConversation(conversation.id)
+		expect(updated?.title).toBe("Normalized session")
+		expect(updated?.mode).toBe("relay")
+		expect(updated?.roundLimit).toBe(1)
+		expect(updated?.requestLimit).toBe(1)
+		expect(updated?.tokenBudget).toBe(1000)
+
+		store.updateConversationSettings(conversation.id, { requestLimit: 6 })
+		store.updateConversationSettings(conversation.id, { tokenBudget: 2000 })
+		expect(store.getConversation(conversation.id)?.requestLimit).toBe(6)
+	})
 })

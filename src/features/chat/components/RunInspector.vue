@@ -13,13 +13,6 @@ import {
 } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useDialogStore } from "@/store"
 import { aggregateMessageUsage } from "../domain"
@@ -28,7 +21,6 @@ import { useChatStore } from "../store"
 import type {
 	AgentPermissions,
 	Conversation,
-	ConversationMode,
 } from "../types"
 import { validateAgent } from "../validation"
 import AgentAvatar from "./AgentAvatar.vue"
@@ -120,7 +112,7 @@ function isParticipant(agentId: string): boolean {
 
 function configure(agentId: string): void {
 	store.selectedAgentId = agentId
-	dialogs.openSettings()
+	dialogs.openSettings("ai")
 }
 
 function setPermission(key: PermissionKey, value: boolean): void {
@@ -202,7 +194,7 @@ function formatDuration(value: number): string {
 							{{ modeLabel }} · {{ t("workspace.maxRounds", { count: conversation.roundLimit }) }}
 						</p>
 					</div>
-					<Button variant="ghost" size="icon" class="size-7" @click="dialogs.openSettings()">
+					<Button variant="ghost" size="icon" class="size-7" @click="dialogs.openSettings('ai')">
 						<Plus class="size-3.5" />
 					</Button>
 				</div>
@@ -254,7 +246,7 @@ function formatDuration(value: number): string {
 					</div>
 				</div>
 
-				<Button variant="outline" class="mt-3 w-full justify-start" @click="dialogs.openSettings()">
+				<Button variant="outline" class="mt-3 w-full justify-start" @click="dialogs.openSettings('ai')">
 					<Plus class="size-4" />
 					{{ t("settings.addAgent") }}
 				</Button>
@@ -311,60 +303,14 @@ function formatDuration(value: number): string {
 					</div>
 				</div>
 
-				<div class="inspector-controls">
-					<p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-						{{ t("inspector.runLimits") }}
-					</p>
-					<label class="inspector-control">
-						<span>{{ t("inspector.mode") }}</span>
-						<Select
-							:model-value="conversation.mode"
-							@update:model-value="conversation.mode = $event as ConversationMode"
-						>
-							<SelectTrigger>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="roundtable">
-									{{ t("inspector.modeRoundtable") }}
-								</SelectItem>
-								<SelectItem value="relay">
-									{{ t("inspector.modeRelay") }}
-								</SelectItem>
-							</SelectContent>
-						</Select>
-					</label>
-					<label class="inspector-control">
-						<span>{{ t("inspector.roundLimit") }}</span>
-						<Input
-							:model-value="conversation.roundLimit"
-							type="number"
-							min="1"
-							max="10"
-							@update:model-value="conversation.roundLimit = Number($event)"
-						/>
-					</label>
-					<label class="inspector-control">
-						<span>{{ t("inspector.requestLimit") }}</span>
-						<Input
-							:model-value="conversation.requestLimit"
-							type="number"
-							min="1"
-							max="50"
-							@update:model-value="conversation.requestLimit = Number($event)"
-						/>
-					</label>
-					<label class="inspector-control">
-						<span>{{ t("inspector.tokenLimit") }}</span>
-						<Input
-							:model-value="conversation.tokenBudget"
-							type="number"
-							min="1000"
-							step="1000"
-							@update:model-value="conversation.tokenBudget = Number($event)"
-						/>
-					</label>
-				</div>
+				<Button
+					variant="outline"
+					class="mt-4 w-full justify-start"
+					@click="dialogs.openSettings('conversation')"
+				>
+					<Settings2 class="size-4" />
+					{{ t("settings.conversation") }}
+				</Button>
 			</section>
 
 			<section v-else-if="activeTab === 'memory'" class="inspector-section">

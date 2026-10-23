@@ -53,19 +53,21 @@ function normalizeAgents(agents: AgentProfile[]): AgentProfile[] {
 	return agents.map(normalizeAgent)
 }
 
+function minimumRequestLimit(
+	conversation: Pick<Conversation, "participantIds" | "roundLimit">
+): number {
+	return Math.max(1, conversation.participantIds.length * conversation.roundLimit)
+}
+
 function normalizeConversation(conversation: Conversation): Conversation {
 	const roundLimit = Math.max(1, conversation.roundLimit)
-	const minimumRequestLimit = Math.max(
-		1,
-		conversation.participantIds.length * roundLimit
-	)
 	return {
 		...conversation,
 		mode: conversation.mode === "relay" ? "relay" : "roundtable",
 		roundLimit,
 		requestLimit: Math.max(
 			conversation.requestLimit ?? 0,
-			minimumRequestLimit
+			minimumRequestLimit(conversation)
 		),
 	}
 }
@@ -292,7 +294,45 @@ export const useChatStore = defineStore("chat-workspace", () => {
 			: [...conversation.participantIds, agentId]
 		conversation.requestLimit = Math.max(
 			conversation.requestLimit,
-			conversation.participantIds.length * conversation.roundLimit
+			minimumRequestLimit(conversation)
+		)
+		conversation.updatedAt = Date.now()
+	}
+
+	function updateConversationSettings(
+		conversationId: string,
+		patch: Partial<
+			Pick<
+				Conversation,
+				"title" | "mode" | "roundLimit" | "requestLimit" | "tokenBudget"
+			>
+		>
+	): void {
+		const conversation = getConversation(conversationId)
+		if (!conversation) return
+
+		if (patch.title !== undefined) {
+			const title = patch.title.trim()
+			if (title) conversation.title = title
+		}
+		if (patch.mode !== undefined) {
+			conversation.mode = patch.mode === "relay" ? "relay" : "roundtable"
+		}
+		if (patch.roundLimit !== undefined) {
+			conversation.roundLimit = Math.min(10, Math.max(1, patch.roundLimit))
+		}
+		if (patch.requestLimit !== undefined) {
+			conversation.requestLimit = Math.max(
+				minimumRequestLimit(conversation),
+				patch.requestLimit
+			)
+		}
+		if (patch.tokenBudget !== undefined) {
+			conversation.tokenBudget = Math.max(1000, patch.tokenBudget)
+		}
+		conversation.requestLimit = Math.max(
+			conversation.requestLimit,
+			minimumRequestLimit(conversation)
 		)
 		conversation.updatedAt = Date.now()
 	}
@@ -466,6 +506,7 @@ export const useChatStore = defineStore("chat-workspace", () => {
 		renameConversation,
 		deleteConversation,
 		toggleParticipant,
+		updateConversationSettings,
 		addMemory,
 		removeMemory,
 		setAgentSecret,

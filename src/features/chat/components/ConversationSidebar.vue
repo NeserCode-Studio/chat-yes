@@ -161,7 +161,7 @@ function participantsFor(conversationId: string) {
 				type="button"
 				class="nextchat-sidebar__agents"
 				:title="t('workspace.settings')"
-				@click="dialogs.openSettings()"
+				@click="dialogs.openSettings('ai')"
 			>
 				<div class="nextchat-session__avatars">
 					<AgentAvatar
