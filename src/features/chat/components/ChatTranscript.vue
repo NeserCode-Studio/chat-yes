@@ -5,9 +5,11 @@ import {
 	Check,
 	Copy,
 	Brain,
-	ChevronDown,
+	ChevronsDown,
+	ChevronsUp,
 	MessagesSquare,
 	Sparkles,
+	TextAlignJustify,
 } from "@lucide/vue"
 import {
 	PopoverContent,
@@ -19,6 +21,8 @@ import { ScrollArea, ScrollAreaInner } from "@/components/ui/scroll-area"
 import type { AgentProfile, ChatMessage } from "../types"
 import { useChatI18n } from "../i18n"
 import AgentAvatar from "./AgentAvatar.vue"
+
+type ReasoningView = "collapsed" | "normal" | "expanded"
 
 const props = defineProps<{
 	messages: ChatMessage[]
@@ -35,7 +39,7 @@ const transcriptScroll = ref<{
 	scrollToBottom: () => void
 } | null>(null)
 const copiedId = ref("")
-const reasoningOpenStates = ref<Record<string, boolean>>({})
+const reasoningViewStates = ref<Record<string, ReasoningView>>({})
 let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 const lastMessageSignature = computed(() => {
@@ -123,17 +127,17 @@ function isEventMessage(message: ChatMessage): boolean {
 	)
 }
 
-function reasoningOpen(message: ChatMessage): boolean {
+function reasoningView(message: ChatMessage): ReasoningView {
 	return (
-		reasoningOpenStates.value[message.id] ??
-		(message.status === "streaming" && !message.content)
+		reasoningViewStates.value[message.id] ??
+		(message.status === "streaming" ? "normal" : "collapsed")
 	)
 }
 
-function setReasoningOpen(id: string, open: boolean): void {
-	reasoningOpenStates.value = {
-		...reasoningOpenStates.value,
-		[id]: open,
+function setReasoningView(id: string, view: ReasoningView): void {
+	reasoningViewStates.value = {
+		...reasoningViewStates.value,
+		[id]: view,
 	}
 }
 
@@ -335,22 +339,59 @@ onBeforeUnmount(() => {
 								<div
 									v-if="message.reasoning"
 									class="nextchat-reasoning"
-									:class="{ 'is-open': reasoningOpen(message) }"
 								>
-									<button
-										type="button"
+									<div
 										class="nextchat-reasoning__summary"
-										:aria-expanded="reasoningOpen(message)"
-										@click="setReasoningOpen(message.id, !reasoningOpen(message))"
 									>
 										<Brain class="size-3.5" />
 										<span>{{ t("workspace.thinking") }}</span>
-										<ChevronDown class="size-3" />
-									</button>
-									<p v-if="reasoningOpen(message)" class="nextchat-reasoning__content">
+										<div
+											class="nextchat-reasoning__modes"
+											role="group"
+											:aria-label="t('workspace.thinking')"
+										>
+											<button
+												type="button"
+												class="nextchat-reasoning__mode"
+												:class="{ 'is-active': reasoningView(message) === 'collapsed' }"
+												:aria-pressed="reasoningView(message) === 'collapsed'"
+												:title="t('workspace.thinkingCollapsed')"
+												@click="setReasoningView(message.id, 'collapsed')"
+											>
+												<ChevronsUp class="size-3" />
+											</button>
+											<button
+												type="button"
+												class="nextchat-reasoning__mode"
+												:class="{ 'is-active': reasoningView(message) === 'normal' }"
+												:aria-pressed="reasoningView(message) === 'normal'"
+												:title="t('workspace.thinkingNormal')"
+												@click="setReasoningView(message.id, 'normal')"
+											>
+												<TextAlignJustify class="size-3" />
+											</button>
+											<button
+												type="button"
+												class="nextchat-reasoning__mode"
+												:class="{ 'is-active': reasoningView(message) === 'expanded' }"
+												:aria-pressed="reasoningView(message) === 'expanded'"
+												:title="t('workspace.thinkingExpanded')"
+												@click="setReasoningView(message.id, 'expanded')"
+											>
+												<ChevronsDown class="size-3" />
+											</button>
+										</div>
+									</div>
+									<p
+										v-if="reasoningView(message) === 'expanded'"
+										class="nextchat-reasoning__content"
+									>
 										{{ message.reasoning }}
 									</p>
-									<p v-else class="nextchat-reasoning__preview line-clamp-4">
+									<p
+										v-else-if="reasoningView(message) === 'normal'"
+										class="nextchat-reasoning__preview line-clamp-4"
+									>
 										{{ message.reasoning }}
 									</p>
 								</div>
