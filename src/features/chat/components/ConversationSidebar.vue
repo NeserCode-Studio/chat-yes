@@ -1,19 +1,20 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import {
-	Bot,
-	Download,
+	ChevronRight,
 	MessageSquarePlus,
 	MessagesSquare,
 	PanelLeftClose,
 	PanelLeftOpen,
 	Search,
+	Settings2,
 	Trash2,
 } from "@lucide/vue"
 import { Input } from "@/components/ui/input"
+import { ScrollArea, ScrollAreaInner } from "@/components/ui/scroll-area"
 import { useDialogStore } from "@/store"
-import { useChatStore } from "../store"
 import { useChatI18n } from "../i18n"
+import { useChatStore } from "../store"
 import AgentAvatar from "./AgentAvatar.vue"
 
 defineProps<{
@@ -23,7 +24,6 @@ defineProps<{
 const emit = defineEmits<{
 	create: []
 	delete: [conversationId: string]
-	export: [conversationId: string]
 	toggle: []
 }>()
 
@@ -56,7 +56,7 @@ function participantsFor(conversationId: string) {
 		<header class="nextchat-sidebar__header">
 			<div class="nextchat-brand">
 				<div class="nextchat-brand__mark" aria-hidden="true">
-					<MessagesSquare class="size-5" />
+					<MessagesSquare class="size-[18px]" />
 				</div>
 				<div class="nextchat-brand__copy">
 					<p class="nextchat-brand__title">Chat Yes</p>
@@ -90,91 +90,94 @@ function participantsFor(conversationId: string) {
 			</div>
 		</div>
 
-		<div class="nextchat-sidebar__body">
-			<div
-				v-for="conversation in filteredConversations"
-				:key="conversation.id"
-				role="button"
-				tabindex="0"
-				class="nextchat-session"
-				:class="{
-					'is-active': store.activeConversationId === conversation.id,
-				}"
-				@click="store.selectConversation(conversation.id)"
-				@keydown.enter.prevent="store.selectConversation(conversation.id)"
-				@keydown.space.prevent="store.selectConversation(conversation.id)"
-			>
-				<div class="nextchat-session__content">
-					<div class="nextchat-session__avatars">
-						<AgentAvatar
-							v-for="agent in participantsFor(conversation.id)"
-							:key="agent?.id"
-							:agent="agent"
-							size="sm"
-						/>
-					</div>
-					<div class="nextchat-session__copy">
-						<p class="nextchat-session__title">{{ conversation.title }}</p>
-						<p class="nextchat-session__preview">
-							{{ conversation.lastMessagePreview || t("workspace.noMessagesHint") }}
-						</p>
-						<div class="nextchat-session__meta">
-							<span
-								class="nextchat-session__status"
-								:data-status="conversation.status"
-							></span>
-							<span>{{ conversation.usage.requestCount }} req</span>
-							<span>·</span>
-							<span>{{ conversation.participantIds.length }} agents</span>
-						</div>
-					</div>
-				</div>
-				<div class="nextchat-session__actions">
-					<button
-						type="button"
-						class="nextchat-session__action nextchat-session__export inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-						:title="t('workspace.exportSession')"
-						@click.stop="emit('export', conversation.id)"
-					>
-						<Download class="size-3.5" />
-					</button>
-					<button
-						type="button"
-						class="nextchat-session__action nextchat-session__delete inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-destructive"
-						:title="t('workspace.deleteSession')"
-						@click.stop="emit('delete', conversation.id)"
-					>
-						<Trash2 class="size-3.5" />
-					</button>
-				</div>
-			</div>
-
-			<div v-if="!filteredConversations.length" class="nextchat-sidebar__empty">
-				<MessagesSquare class="size-5" />
-				<strong>{{ t("workspace.noSessions") }}</strong>
-				<p>{{ t("workspace.noSessionsHint") }}</p>
-			</div>
+		<div class="nextchat-sidebar__section-heading">
+			<span>{{ t("workspace.sessions") }}</span>
+			<span class="nextchat-sidebar__count">{{ filteredConversations.length }}</span>
 		</div>
+
+		<ScrollArea class="nextchat-sidebar__scroll">
+			<ScrollAreaInner>
+				<div class="nextchat-sidebar__body">
+					<div
+						v-for="conversation in filteredConversations"
+						:key="conversation.id"
+						role="button"
+						tabindex="0"
+						class="nextchat-session"
+						:class="{
+							'is-active': store.activeConversationId === conversation.id,
+						}"
+						@click="store.selectConversation(conversation.id)"
+						@keydown.enter.prevent="store.selectConversation(conversation.id)"
+						@keydown.space.prevent="store.selectConversation(conversation.id)"
+					>
+						<div class="nextchat-session__avatars">
+							<AgentAvatar
+								v-for="agent in participantsFor(conversation.id)"
+								:key="agent?.id"
+								:agent="agent"
+								size="sm"
+							/>
+						</div>
+						<div class="nextchat-session__copy">
+							<p class="nextchat-session__title">{{ conversation.title }}</p>
+							<p class="nextchat-session__preview">
+								{{ conversation.lastMessagePreview || t("workspace.noMessagesHint") }}
+							</p>
+							<div class="nextchat-session__meta">
+								<span
+									class="nextchat-session__status"
+									:data-status="conversation.status"
+								></span>
+								<span>
+									{{
+										t("workspace.agentCountShort", {
+											count: conversation.participantIds.length,
+										})
+									}}
+								</span>
+								<span>·</span>
+								<span>
+									{{
+										t("workspace.requestCountShort", {
+											count: conversation.usage.requestCount,
+										})
+									}}
+								</span>
+							</div>
+						</div>
+						<button
+							type="button"
+							class="nextchat-session__action nextchat-session__delete"
+							:title="t('workspace.deleteSession')"
+							@click.stop="emit('delete', conversation.id)"
+						>
+							<Trash2 class="size-3.5" />
+						</button>
+					</div>
+
+					<div v-if="!filteredConversations.length" class="nextchat-sidebar__empty">
+						<MessagesSquare class="size-5" />
+						<strong>{{ t("workspace.noSessions") }}</strong>
+						<p>{{ t("workspace.noSessionsHint") }}</p>
+					</div>
+				</div>
+			</ScrollAreaInner>
+		</ScrollArea>
 
 		<footer class="nextchat-sidebar__footer">
 			<button
 				type="button"
-				class="nextchat-sidebar__agents"
+				class="nextchat-sidebar__settings"
 				:title="t('workspace.settings')"
-				@click="dialogs.openSettings('ai')"
+				@click="dialogs.openSettings('application')"
 			>
-				<div class="nextchat-session__avatars">
-					<AgentAvatar
-						v-for="agent in store.agents.slice(0, 4)"
-						:key="agent.id"
-						:agent="agent"
-						size="sm"
-					/>
-				</div>
-				<span class="text-xs text-muted-foreground">
-					{{ t("workspace.totalAgents", { count: store.agents.length }) }}
+				<Settings2 class="size-4 shrink-0" />
+				<span class="nextchat-sidebar__settings-copy">
+					<strong>{{ t("workspace.settings") }}</strong>
+					<small>{{ t("workspace.totalAgents", { count: store.agents.length }) }}</small>
 				</span>
-				<Bot class="size-4" />
+				<ChevronRight class="nextchat-sidebar__settings-arrow size-3.5" />
 			</button>
 		</footer>
 	</aside>

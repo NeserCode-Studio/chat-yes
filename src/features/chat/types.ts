@@ -56,6 +56,7 @@ export interface AgentProfile {
 	streaming: boolean
 	permissions: AgentPermissions
 	memories: AgentMemoryEntry[]
+	presetBindings?: Partial<Record<AgentPresetGroup, string>>
 	createdAt: number
 	updatedAt: number
 }
@@ -106,6 +107,7 @@ export interface Conversation {
 	activeAgentId?: string
 	usage: TokenUsage
 	lastMessagePreview: string
+	presetBindings?: Partial<Record<AgentSettingsPresetGroup, string>>
 	createdAt: number
 	updatedAt: number
 }
@@ -156,12 +158,18 @@ export interface CompletionOptions {
 	onReasoningDelta?: (delta: string) => void
 }
 
-export type AgentSettingsPresetGroup =
+export type AgentPresetGroup =
 	| "connection"
 	| "behavior"
 	| "generation"
 	| "memory"
 	| "permissions"
+
+export type ConversationPresetGroup = "limits"
+
+export type AgentSettingsPresetGroup =
+	| AgentPresetGroup
+	| ConversationPresetGroup
 
 export interface ConnectionPresetValues {
 	endpoint: string
@@ -186,12 +194,20 @@ export type MemoryPresetValues = AgentMemoryEntry[]
 
 export type PermissionsPresetValues = AgentPermissions
 
+export interface LimitsPresetValues {
+	mode: ConversationMode
+	roundLimit: number
+	requestLimit: number
+	tokenBudget: number
+}
+
 export type AgentSettingsPresetValues =
 	| ConnectionPresetValues
 	| BehaviorPresetValues
 	| GenerationPresetValues
 	| MemoryPresetValues
 	| PermissionsPresetValues
+	| LimitsPresetValues
 
 export interface AgentSettingsPreset {
 	id: string

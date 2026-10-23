@@ -50,6 +50,7 @@ function normalizeAgent(agent: AgentProfile): AgentProfile {
 		topP: agent.topP ?? DEFAULT_SAMPLING.topP,
 		presencePenalty: agent.presencePenalty ?? DEFAULT_SAMPLING.presencePenalty,
 		frequencyPenalty: agent.frequencyPenalty ?? DEFAULT_SAMPLING.frequencyPenalty,
+		presetBindings: { ...agent.presetBindings },
 		permissions: {
 			shareConversation: permissions?.shareConversation ?? true,
 			autoReply: permissions?.autoReply ?? true,
@@ -106,6 +107,7 @@ function createConversation(
 		status: "idle",
 		usage: emptyUsage(),
 		lastMessagePreview: "",
+		presetBindings: {},
 		createdAt: now,
 		updatedAt: now,
 	}
@@ -316,7 +318,12 @@ export const useChatStore = defineStore("chat-workspace", () => {
 		patch: Partial<
 			Pick<
 				Conversation,
-				"title" | "mode" | "roundLimit" | "requestLimit" | "tokenBudget"
+				| "title"
+				| "mode"
+				| "roundLimit"
+				| "requestLimit"
+				| "tokenBudget"
+				| "presetBindings"
 			>
 		>
 	): void {
@@ -341,6 +348,9 @@ export const useChatStore = defineStore("chat-workspace", () => {
 		}
 		if (patch.tokenBudget !== undefined) {
 			conversation.tokenBudget = Math.max(1000, patch.tokenBudget)
+		}
+		if (patch.presetBindings !== undefined) {
+			conversation.presetBindings = { ...patch.presetBindings }
 		}
 		conversation.requestLimit = Math.max(
 			conversation.requestLimit,
@@ -392,7 +402,22 @@ export const useChatStore = defineStore("chat-workspace", () => {
 	}
 
 	function deletePreset(presetId: string): void {
+		const preset = presets.value.find((item) => item.id === presetId)
 		presets.value = presets.value.filter((preset) => preset.id !== presetId)
+		if (!preset) return
+		const now = Date.now()
+		if (preset.group !== "limits") {
+			for (const agent of agents.value) {
+				if (agent.presetBindings?.[preset.group] !== presetId) continue
+				delete agent.presetBindings[preset.group]
+				agent.updatedAt = now
+			}
+		}
+		for (const conversation of conversations.value) {
+			if (conversation.presetBindings?.[preset.group] !== presetId) continue
+			delete conversation.presetBindings[preset.group]
+			conversation.updatedAt = now
+		}
 	}
 
 	async function setAgentSecret(agentId: string, secret: string): Promise<void> {

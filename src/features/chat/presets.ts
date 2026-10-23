@@ -1,20 +1,30 @@
 import type {
+	AgentPresetGroup,
 	AgentProfile,
 	AgentSettingsPresetGroup,
 	AgentSettingsPresetValues,
 	BehaviorPresetValues,
 	ConnectionPresetValues,
+	Conversation,
 	GenerationPresetValues,
+	LimitsPresetValues,
 	MemoryPresetValues,
 	PermissionsPresetValues,
 } from "./types"
 
-export const PRESET_GROUPS: AgentSettingsPresetGroup[] = [
+export const AGENT_PRESET_GROUPS: AgentPresetGroup[] = [
 	"connection",
 	"behavior",
 	"generation",
 	"memory",
 	"permissions",
+]
+
+export const CONVERSATION_PRESET_GROUPS: AgentSettingsPresetGroup[] = ["limits"]
+
+export const PRESET_GROUPS: AgentSettingsPresetGroup[] = [
+	...AGENT_PRESET_GROUPS,
+	...CONVERSATION_PRESET_GROUPS,
 ]
 
 function clone<T>(value: T): T {
@@ -26,7 +36,7 @@ export function presetSecretKey(presetId: string): string {
 }
 
 export function collectPresetValues(
-	group: AgentSettingsPresetGroup,
+	group: AgentPresetGroup,
 	agent: AgentProfile
 ): AgentSettingsPresetValues {
 	switch (group) {
@@ -56,7 +66,7 @@ export function collectPresetValues(
 
 export function applyPresetValues(
 	agent: AgentProfile,
-	group: AgentSettingsPresetGroup,
+	group: AgentPresetGroup,
 	values: AgentSettingsPresetValues
 ): void {
 	switch (group) {
@@ -92,4 +102,27 @@ export function applyPresetValues(
 			break
 	}
 	agent.updatedAt = Date.now()
+}
+
+export function collectConversationPresetValues(
+	conversation: Conversation
+): LimitsPresetValues {
+	return {
+		mode: conversation.mode,
+		roundLimit: conversation.roundLimit,
+		requestLimit: conversation.requestLimit,
+		tokenBudget: conversation.tokenBudget,
+	}
+}
+
+export function applyConversationPresetValues(
+	conversation: Conversation,
+	values: AgentSettingsPresetValues
+): void {
+	const limits = values as LimitsPresetValues
+	conversation.mode = limits.mode === "relay" ? "relay" : "roundtable"
+	conversation.roundLimit = limits.roundLimit
+	conversation.requestLimit = limits.requestLimit
+	conversation.tokenBudget = limits.tokenBudget
+	conversation.updatedAt = Date.now()
 }

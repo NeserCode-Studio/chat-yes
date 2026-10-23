@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import {
 	Activity,
 	BadgeCheck,
@@ -14,6 +14,7 @@ import {
 	MessagesSquare,
 	Moon,
 	Palette,
+	Pencil,
 	Plus,
 	Server,
 	Settings2,
@@ -36,6 +37,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
+import { ScrollArea, ScrollAreaInner } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -45,15 +47,12 @@ import {
 	useTitleStore,
 } from "@/store"
 import { useAppearanceStore } from "@/store/appearance"
-import {
-	aggregateMessageUsage,
-	applyAgentPreset,
-	createMemoryEntry,
-} from "../domain"
+import { applyAgentPreset } from "../domain"
 import { useChatI18n } from "../i18n"
 import {
 	PRESET_GROUPS,
 	applyPresetValues,
+	collectConversationPresetValues,
 	collectPresetValues,
 	presetSecretKey,
 } from "../presets"
@@ -67,20 +66,24 @@ import { AGENT_ACCENTS } from "../types"
 import type {
 	AgentPermissions,
 	AgentPreset,
+	AgentPresetGroup,
 	AgentProfile,
 	AgentRole,
 	AgentSettingsPreset,
 	AgentSettingsPresetGroup,
+	AgentSettingsPresetValues,
 	BehaviorPresetValues,
 	ConnectionPresetValues,
 	ConversationMode,
 	GenerationPresetValues,
+	LimitsPresetValues,
 	MemoryPresetValues,
 	PermissionsPresetValues,
 } from "../types"
 import { validateAgent } from "../validation"
 import AgentAvatar from "./AgentAvatar.vue"
 import ConfirmDialog from "./ConfirmDialog.vue"
+import PresetEditDialog from "./PresetEditDialog.vue"
 import SettingsPresetPicker from "./SettingsPresetPicker.vue"
 
 type SettingsTab = "application" | "ai" | "conversation" | "presets"
@@ -94,7 +97,6 @@ const appearance = useAppearanceStore()
 const dialogs = useDialogStore()
 const { t } = useChatI18n()
 const activeTab = ref<SettingsTab>(dialogs.settingsSection)
-const memoryDraft = ref("")
 const apiKeyDraft = ref("")
 const agentDraft = ref<AgentProfile | null>(null)
 const confirmOpen = ref(false)
@@ -103,13 +105,23 @@ const confirmTitle = ref("")
 const confirmDescription = ref("")
 const confirmLabel = ref("")
 const confirmDestructive = ref(false)
-const appliedPresetIds = ref<Record<AgentSettingsPresetGroup, string>>({
-	connection: "",
-	behavior: "",
-	generation: "",
-	memory: "",
-	permissions: "",
+const appliedPresetIds = ref<
+	Record<AgentSettingsPresetGroup, string | undefined>
+>({
+	connection: undefined,
+	behavior: undefined,
+	generation: undefined,
+	memory: undefined,
+	permissions: undefined,
+	limits: undefined,
 })
+const editingPresetId = ref<string | null>(null)
+const editingPresetSecret = ref("")
+const highlightedPresetId = ref("")
+const presetRowElements = new Map<string, HTMLElement>()
+const presetGroupElements = new Map<AgentSettingsPresetGroup, HTMLElement>()
+let highlightTimer: ReturnType<typeof setTimeout> | undefined
+let editDialogTimer: ReturnType<typeof setTimeout> | undefined
 
 const selectedAgent = computed(() => store.selectedAgent)
 const activeConversation = computed(() => store.activeConversation)
@@ -130,16 +142,11 @@ const validation = computed(() =>
 const canSaveAgent = computed(
 	() => hasDraftChanges.value && validation.value?.valid === true
 )
-const selectedAgentUsage = computed(() => {
-	if (!selectedAgent.value) return aggregateMessageUsage([])
-	const messages = store.conversations.flatMap(
-		(conversation) =>
-			store.messagesByConversation[conversation.id] ?? []
-	)
-	return aggregateMessageUsage(
-		messages.filter((message) => message.agentId === selectedAgent.value?.id)
-	)
-})
+const editingPreset = computed(
+	() =>
+		store.presets.find((preset) => preset.id === editingPresetId.value) ??
+		null
+)
 const averageLatency = computed(() => {
 	const requests = store.totalUsage.requestCount
 	return requests ? Math.round(store.totalUsage.latencyMs / requests) : 0
@@ -165,6 +172,7 @@ const presetsByGroup = computed<Record<AgentSettingsPresetGroup, AgentSettingsPr
 			generation: [],
 			memory: [],
 			permissions: [],
+			limits: [],
 		} as Record<AgentSettingsPresetGroup, AgentSettingsPreset[]>
 		for (const preset of store.presets) {
 			grouped[preset.group]?.push(preset)
@@ -224,6 +232,17 @@ function cloneAgentProfile(agent: AgentProfile): AgentProfile {
 	return JSON.parse(JSON.stringify(agent)) as AgentProfile
 }
 
+function syncAgentPresetBindings(agent: AgentProfile | null): void {
+	appliedPresetIds.value = {
+		connection: agent?.presetBindings?.connection,
+		behavior: agent?.presetBindings?.behavior,
+		generation: agent?.presetBindings?.generation,
+		memory: agent?.presetBindings?.memory,
+		permissions: agent?.presetBindings?.permissions,
+		limits: appliedPresetIds.value.limits,
+	}
+}
+
 watch(
 	() => [selectedAgent.value?.id, store.secretVersion],
 	() => {
@@ -233,12 +252,17 @@ watch(
 		apiKeyDraft.value = selectedAgent.value
 			? store.getAgentSecret(selectedAgent.value.id)
 			: ""
+		syncAgentPresetBindings(selectedAgent.value)
+	},
+	{ immediate: true }
+)
+
+watch(
+	() => activeConversation.value?.id,
+	() => {
 		appliedPresetIds.value = {
-			connection: "",
-			behavior: "",
-			generation: "",
-			memory: "",
-			permissions: "",
+			...appliedPresetIds.value,
+			limits: activeConversation.value?.presetBindings?.limits,
 		}
 	},
 	{ immediate: true }
@@ -340,6 +364,7 @@ function resetAgentDraft(): void {
 	apiKeyDraft.value = selectedAgent.value
 		? store.getAgentSecret(selectedAgent.value.id)
 		: ""
+	syncAgentPresetBindings(selectedAgent.value)
 }
 
 function closeSettings(): void {
@@ -364,21 +389,6 @@ function setPermission(key: PermissionKey, value: boolean): void {
 	agentDraft.value.updatedAt = Date.now()
 }
 
-function addMemory(): void {
-	if (!agentDraft.value || !memoryDraft.value.trim()) return
-	agentDraft.value.memories.unshift(createMemoryEntry(memoryDraft.value))
-	agentDraft.value.updatedAt = Date.now()
-	memoryDraft.value = ""
-}
-
-function removeMemory(memoryId: string): void {
-	if (!agentDraft.value) return
-	agentDraft.value.memories = agentDraft.value.memories.filter(
-		(item) => item.id !== memoryId
-	)
-	agentDraft.value.updatedAt = Date.now()
-}
-
 function presetGroupLabel(group: AgentSettingsPresetGroup): string {
 	const labels: Record<AgentSettingsPresetGroup, string> = {
 		connection: t.value("settings.presetGroupConnection"),
@@ -386,8 +396,21 @@ function presetGroupLabel(group: AgentSettingsPresetGroup): string {
 		generation: t.value("settings.presetGroupGeneration"),
 		memory: t.value("settings.presetGroupMemory"),
 		permissions: t.value("settings.presetGroupPermissions"),
+		limits: t.value("settings.presetGroupLimits"),
 	}
 	return labels[group]
+}
+
+function boundPresetName(group: AgentSettingsPresetGroup): string {
+	const id = appliedPresetIds.value[group]
+	if (!id) return ""
+	return store.presets.find((preset) => preset.id === id)?.name ?? ""
+}
+
+function boundPresetSummary(group: AgentSettingsPresetGroup): string {
+	const id = appliedPresetIds.value[group]
+	const preset = store.presets.find((item) => item.id === id)
+	return preset ? presetSummary(preset) : ""
 }
 
 function presetSummary(preset: AgentSettingsPreset): string {
@@ -414,11 +437,15 @@ function presetSummary(preset: AgentSettingsPreset): string {
 			].filter(Boolean).length
 			return `${enabled}/4 ${t.value("settings.permissions")}`
 		}
+		case "limits": {
+			const values = preset.values as LimitsPresetValues
+			return `${values.mode} · ${values.roundLimit} / ${values.requestLimit} / ${values.tokenBudget}`
+		}
 	}
 }
 
 async function applyGroupPreset(
-	group: AgentSettingsPresetGroup,
+	group: AgentPresetGroup,
 	id: string
 ): Promise<void> {
 	const preset = store.presets.find(
@@ -426,6 +453,10 @@ async function applyGroupPreset(
 	)
 	if (!preset || !agentDraft.value) return
 	applyPresetValues(agentDraft.value, group, preset.values)
+	agentDraft.value.presetBindings = {
+		...(agentDraft.value.presetBindings ?? {}),
+		[group]: id,
+	}
 	appliedPresetIds.value[group] = id
 	if (group === "connection") {
 		const secret = await readStoredSecret(presetSecretKey(preset.id))
@@ -434,12 +465,16 @@ async function applyGroupPreset(
 }
 
 async function saveGroupPreset(
-	group: AgentSettingsPresetGroup,
+	group: AgentPresetGroup,
 	name: string
 ): Promise<void> {
 	if (!agentDraft.value || !name.trim()) return
 	const values = collectPresetValues(group, agentDraft.value)
 	const preset = store.savePreset(group, name, values)
+	agentDraft.value.presetBindings = {
+		...(agentDraft.value.presetBindings ?? {}),
+		[group]: preset.id,
+	}
 	appliedPresetIds.value[group] = preset.id
 	if (group === "connection") {
 		const secret = apiKeyDraft.value.trim()
@@ -448,18 +483,218 @@ async function saveGroupPreset(
 	}
 }
 
+function requestUnbindPreset(group: AgentSettingsPresetGroup): void {
+	requestConfirmation({
+		title: t.value("settings.presetUnbindTitle"),
+		description: t.value("settings.presetUnbindDescription"),
+		confirmLabel: t.value("settings.presetUnbind"),
+		action: () => {
+			appliedPresetIds.value[group] = undefined
+			if (group === "limits") {
+				const conversation = activeConversation.value
+				if (!conversation) return
+				const bindings = { ...conversation.presetBindings }
+				delete bindings.limits
+				store.updateConversationSettings(conversation.id, {
+					presetBindings: bindings,
+				})
+				return
+			}
+			if (!agentDraft.value) return
+			const bindings = { ...agentDraft.value.presetBindings }
+			delete bindings[group]
+			agentDraft.value.presetBindings = bindings
+		},
+	})
+}
+
+async function applyConversationLimitsPreset(id: string): Promise<void> {
+	const conversation = activeConversation.value
+	const preset = store.presets.find(
+		(item) => item.id === id && item.group === "limits"
+	)
+	if (!conversation || !preset) return
+	const values = preset.values as LimitsPresetValues
+	store.updateConversationSettings(conversation.id, {
+		mode: values.mode,
+		roundLimit: values.roundLimit,
+		requestLimit: values.requestLimit,
+		tokenBudget: values.tokenBudget,
+		presetBindings: {
+			...(conversation.presetBindings ?? {}),
+			limits: id,
+		},
+	})
+	appliedPresetIds.value.limits = id
+}
+
+async function applyPresetFromLibrary(
+	preset: AgentSettingsPreset
+): Promise<void> {
+	if (preset.group === "limits") {
+		await applyConversationLimitsPreset(preset.id)
+		return
+	}
+	await applyGroupPreset(preset.group, preset.id)
+}
+
+function canApplyPreset(preset: AgentSettingsPreset): boolean {
+	return preset.group === "limits"
+		? Boolean(activeConversation.value)
+		: Boolean(selectedAgent.value)
+}
+
+function saveConversationLimitsPreset(name: string): void {
+	const conversation = activeConversation.value
+	if (!conversation || !name.trim()) return
+	const preset = store.savePreset(
+		"limits",
+		name,
+		collectConversationPresetValues(conversation)
+	)
+	store.updateConversationSettings(conversation.id, {
+		presetBindings: {
+			...(conversation.presetBindings ?? {}),
+			limits: preset.id,
+		},
+	})
+	appliedPresetIds.value.limits = preset.id
+}
+
 async function deleteGroupPreset(
 	group: AgentSettingsPresetGroup,
 	id: string
 ): Promise<void> {
 	store.deletePreset(id)
 	if (appliedPresetIds.value[group] === id) {
-		appliedPresetIds.value[group] = ""
+		appliedPresetIds.value[group] = undefined
+	}
+	if (group !== "limits" && agentDraft.value?.presetBindings?.[group] === id) {
+		const bindings = { ...agentDraft.value.presetBindings }
+		delete bindings[group]
+		agentDraft.value.presetBindings = bindings
 	}
 	if (group === "connection") {
 		await removeStoredSecret(presetSecretKey(id))
 	}
 }
+
+function registerPresetRow(id: string, element: unknown): void {
+	if (element instanceof HTMLElement) presetRowElements.set(id, element)
+	else presetRowElements.delete(id)
+}
+
+function registerPresetGroup(
+	group: AgentSettingsPresetGroup,
+	element: unknown
+): void {
+	if (element instanceof HTMLElement) presetGroupElements.set(group, element)
+	else presetGroupElements.delete(group)
+}
+
+async function editPreset(presetId: string): Promise<void> {
+	const preset = store.presets.find((item) => item.id === presetId)
+	if (!preset) return
+	activeTab.value = "presets"
+	highlightedPresetId.value = presetId
+	editingPresetSecret.value = ""
+	if (preset.group === "connection") {
+		editingPresetSecret.value =
+			(await readStoredSecret(presetSecretKey(preset.id))) ?? ""
+	}
+	await nextTick()
+	requestAnimationFrame(() => {
+		const target =
+			presetRowElements.get(presetId) ??
+			presetGroupElements.get(preset.group)
+		target?.scrollIntoView({ behavior: "smooth", block: "center" })
+	})
+	if (editDialogTimer) clearTimeout(editDialogTimer)
+	editDialogTimer = setTimeout(() => {
+		editingPresetId.value = presetId
+	}, 520)
+	if (highlightTimer) clearTimeout(highlightTimer)
+	highlightTimer = setTimeout(() => {
+		highlightedPresetId.value = ""
+	}, 3200)
+}
+
+async function saveEditedPreset(payload: {
+	name: string
+	values: AgentSettingsPresetValues
+	apiKey?: string
+}): Promise<void> {
+	const preset = editingPreset.value
+	if (!preset) return
+	preset.name = payload.name
+	preset.values = payload.values
+	preset.updatedAt = Date.now()
+
+	if (preset.group === "connection") {
+		const secret = payload.apiKey?.trim() ?? ""
+		if (secret) {
+			await writeStoredSecret(presetSecretKey(preset.id), secret)
+		} else {
+			await removeStoredSecret(presetSecretKey(preset.id))
+		}
+	}
+
+	if (preset.group === "limits") {
+		for (const conversation of store.conversations) {
+			if (conversation.presetBindings?.limits !== preset.id) continue
+			store.updateConversationSettings(conversation.id, {
+				...(preset.values as LimitsPresetValues),
+			})
+		}
+	} else {
+		for (const agent of store.agents) {
+			if (agent.presetBindings?.[preset.group] !== preset.id) continue
+			applyPresetValues(agent, preset.group, preset.values)
+			if (selectedAgent.value?.id === agent.id && agentDraft.value) {
+				applyPresetValues(agentDraft.value, preset.group, preset.values)
+			}
+		}
+		if (
+			agentDraft.value?.presetBindings?.[preset.group] === preset.id &&
+			selectedAgent.value?.presetBindings?.[preset.group] !== preset.id
+		) {
+			applyPresetValues(agentDraft.value, preset.group, preset.values)
+		}
+		if (
+			preset.group === "connection" &&
+			appliedPresetIds.value.connection === preset.id
+		) {
+			apiKeyDraft.value = payload.apiKey ?? ""
+		}
+	}
+	editingPresetId.value = null
+}
+
+async function deleteEditedPreset(id: string): Promise<void> {
+	const preset = store.presets.find((item) => item.id === id)
+	await deleteGroupPreset(preset?.group ?? "connection", id)
+	editingPresetId.value = null
+}
+
+async function manageMemoryPresets(): Promise<void> {
+	const boundId = appliedPresetIds.value.memory
+	if (boundId) {
+		await editPreset(boundId)
+		return
+	}
+	activeTab.value = "presets"
+	await nextTick()
+	requestAnimationFrame(() => {
+		presetGroupElements
+			.get("memory")
+			?.scrollIntoView({ behavior: "smooth", block: "start" })
+	})
+}
+
+onBeforeUnmount(() => {
+	if (highlightTimer) clearTimeout(highlightTimer)
+	if (editDialogTimer) clearTimeout(editDialogTimer)
+})
 
 function setTheme(value: string): void {
 	theme.setThemeMode(value === "dark" ? "dark" : "light")
@@ -634,8 +869,11 @@ function formatDuration(value: number): string {
 				</div>
 			</nav>
 
-			<main class="nextchat-settings__content">
-				<div class="nextchat-settings__content-inner">
+			<div class="nextchat-settings__panel">
+				<ScrollArea class="nextchat-settings__content">
+					<ScrollAreaInner>
+						<div class="nextchat-settings__content-pad">
+							<div class="nextchat-settings__content-inner">
 					<template v-if="activeTab === 'application'">
 						<section class="nextchat-settings-list">
 							<header class="nextchat-settings-list__header">
@@ -822,23 +1060,6 @@ function formatDuration(value: number): string {
 								</div>
 							</div>
 
-							<div v-if="selectedAgent" class="nextchat-settings-row">
-								<div class="nextchat-settings__agent-summary-main">
-									<AgentAvatar :agent="selectedAgent" size="sm" />
-									<div class="min-w-0">
-										<p class="nextchat-settings-row__title">{{ selectedAgent.name }}</p>
-										<p class="nextchat-settings-row__subtitle">{{ t("settings.agentUsage") }}</p>
-									</div>
-								</div>
-								<div class="text-right">
-									<p class="nextchat-settings-row__title tabular-nums">
-										{{ formatNumber(selectedAgentUsage.totalTokens) }}
-									</p>
-									<p class="nextchat-settings-row__subtitle">
-										{{ selectedAgentUsage.requestCount }} requests
-									</p>
-								</div>
-							</div>
 						</section>
 					</template>
 
@@ -913,6 +1134,29 @@ function formatDuration(value: number): string {
 										</Select>
 									</div>
 								</div>
+
+								<div class="nextchat-settings-row is-stack">
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">{{ t("settings.accent") }}</p>
+										<p class="nextchat-settings-row__subtitle">{{ t("settings.accentHint") }}</p>
+									</div>
+									<div class="nextchat-settings-row__control is-wide">
+										<div class="flex flex-wrap items-center gap-2">
+											<button
+												v-for="accent in AGENT_ACCENTS"
+												:key="accent"
+												type="button"
+												class="size-8 rounded-full border-2"
+												:class="agentDraft.accent === accent ? 'border-foreground' : 'border-transparent'"
+												:title="accent"
+												@click="agentDraft.accent = accent"
+											>
+												<span class="block size-full rounded-full" :style="{ backgroundColor: accent }"></span>
+											</button>
+											<Input v-model="agentDraft.accent" class="max-w-36 font-mono text-xs" />
+										</div>
+									</div>
+								</div>
 							</section>
 
 							<section class="nextchat-settings-list">
@@ -929,11 +1173,29 @@ function formatDuration(value: number): string {
 										:placeholder="t('settings.presetSelect')"
 										@update:model-value="(id: string) => applyGroupPreset('connection', id)"
 										@save="(name: string) => saveGroupPreset('connection', name)"
-										@delete="(id: string) => deleteGroupPreset('connection', id)"
+										@edit="editPreset"
+										@unbind="requestUnbindPreset('connection')"
 									/>
 								</header>
 
-								<div class="nextchat-settings-row is-stack">
+								<div
+									v-if="appliedPresetIds.connection"
+									class="nextchat-settings-row nextchat-settings__preset-summary"
+								>
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">
+											{{ boundPresetName("connection") }}
+										</p>
+										<p class="nextchat-settings-row__subtitle">
+											{{ boundPresetSummary("connection") }}
+										</p>
+									</div>
+									<span class="nextchat-settings__locked-label">
+										{{ t("settings.presetLocked") }}
+									</span>
+								</div>
+
+								<div v-else class="nextchat-settings-row is-stack">
 									<div class="nextchat-settings-row__copy">
 										<p class="nextchat-settings-row__title">{{ t("settings.endpoint") }}</p>
 										<p class="nextchat-settings-row__subtitle">{{ t("settings.endpointHint") }}</p>
@@ -953,7 +1215,7 @@ function formatDuration(value: number): string {
 									</div>
 								</div>
 
-								<div class="nextchat-settings-row">
+								<div v-if="!appliedPresetIds.connection" class="nextchat-settings-row">
 									<div class="nextchat-settings-row__copy">
 										<p class="nextchat-settings-row__title">{{ t("settings.apiKey") }}</p>
 										<p class="nextchat-settings-row__subtitle">{{ t("settings.apiKeyHint") }}</p>
@@ -988,29 +1250,6 @@ function formatDuration(value: number): string {
 									</div>
 								</div>
 
-								<div class="nextchat-settings-row is-stack">
-									<div class="nextchat-settings-row__copy">
-										<p class="nextchat-settings-row__title">{{ t("settings.accent") }}</p>
-										<p class="nextchat-settings-row__subtitle">{{ t("settings.accentHint") }}</p>
-									</div>
-									<div class="nextchat-settings-row__control is-wide">
-										<div class="flex flex-wrap items-center gap-2">
-											<button
-												v-for="accent in AGENT_ACCENTS"
-												:key="accent"
-												type="button"
-												class="size-8 rounded-full border-2"
-												:class="agentDraft.accent === accent ? 'border-foreground' : 'border-transparent'"
-												:title="accent"
-												@click="agentDraft.accent = accent"
-											>
-												<span class="block size-full rounded-full" :style="{ backgroundColor: accent }"></span>
-											</button>
-											<Input v-model="agentDraft.accent" class="max-w-36 font-mono text-xs" />
-										</div>
-									</div>
-								</div>
-
 								<div v-if="validation && !validation.valid" class="nextchat-settings-row">
 									<div class="nextchat-settings__notice w-full">
 										<p v-for="reason in validation.reasons" :key="reason">{{ reason }}</p>
@@ -1032,10 +1271,29 @@ function formatDuration(value: number): string {
 										:placeholder="t('settings.presetSelect')"
 										@update:model-value="(id: string) => applyGroupPreset('behavior', id)"
 										@save="(name: string) => saveGroupPreset('behavior', name)"
-										@delete="(id: string) => deleteGroupPreset('behavior', id)"
+										@edit="editPreset"
+										@unbind="requestUnbindPreset('behavior')"
 									/>
 								</header>
 
+								<div
+									v-if="appliedPresetIds.behavior"
+									class="nextchat-settings-row nextchat-settings__preset-summary"
+								>
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">
+											{{ boundPresetName("behavior") }}
+										</p>
+										<p class="nextchat-settings-row__subtitle">
+											{{ boundPresetSummary("behavior") }}
+										</p>
+									</div>
+									<span class="nextchat-settings__locked-label">
+										{{ t("settings.presetLocked") }}
+									</span>
+								</div>
+
+								<template v-if="!appliedPresetIds.behavior">
 								<div class="nextchat-settings-row">
 									<div class="nextchat-settings-row__copy">
 										<p class="nextchat-settings-row__title">{{ t("settings.preset") }}</p>
@@ -1141,6 +1399,7 @@ function formatDuration(value: number): string {
 										</div>
 									</div>
 								</div>
+								</template>
 
 								<div class="nextchat-settings-row is-vertical">
 									<div class="nextchat-settings-row__copy">
@@ -1152,7 +1411,7 @@ function formatDuration(value: number): string {
 									</div>
 								</div>
 
-								<div class="nextchat-settings-row">
+								<div v-if="!appliedPresetIds.behavior" class="nextchat-settings-row">
 									<div class="nextchat-settings-row__copy">
 										<p class="nextchat-settings-row__title">{{ t("settings.streaming") }}</p>
 										<p class="nextchat-settings-row__subtitle">{{ t("settings.streamingHint") }}</p>
@@ -1179,10 +1438,29 @@ function formatDuration(value: number): string {
 										:placeholder="t('settings.presetSelect')"
 										@update:model-value="(id: string) => applyGroupPreset('generation', id)"
 										@save="(name: string) => saveGroupPreset('generation', name)"
-										@delete="(id: string) => deleteGroupPreset('generation', id)"
+										@edit="editPreset"
+										@unbind="requestUnbindPreset('generation')"
 									/>
 								</header>
 
+								<div
+									v-if="appliedPresetIds.generation"
+									class="nextchat-settings-row nextchat-settings__preset-summary"
+								>
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">
+											{{ boundPresetName("generation") }}
+										</p>
+										<p class="nextchat-settings-row__subtitle">
+											{{ boundPresetSummary("generation") }}
+										</p>
+									</div>
+									<span class="nextchat-settings__locked-label">
+										{{ t("settings.presetLocked") }}
+									</span>
+								</div>
+
+								<template v-if="!appliedPresetIds.generation">
 								<div class="nextchat-settings-row">
 									<div class="nextchat-settings-row__copy">
 										<p class="nextchat-settings-row__title">{{ t("settings.maxTokens") }}</p>
@@ -1230,6 +1508,7 @@ function formatDuration(value: number): string {
 										/>
 									</div>
 								</div>
+								</template>
 							</section>
 
 							<section class="nextchat-settings-list">
@@ -1246,52 +1525,32 @@ function formatDuration(value: number): string {
 										:placeholder="t('settings.presetSelect')"
 										@update:model-value="(id: string) => applyGroupPreset('memory', id)"
 										@save="(name: string) => saveGroupPreset('memory', name)"
-										@delete="(id: string) => deleteGroupPreset('memory', id)"
+										@edit="editPreset"
+										@unbind="requestUnbindPreset('memory')"
 									/>
 								</header>
 
-								<div class="nextchat-settings-row is-vertical">
-									<div class="flex gap-2">
-										<Input
-											v-model="memoryDraft"
-											:placeholder="t('inspector.addMemory')"
-											@keydown.enter="addMemory"
-										/>
-										<Button :disabled="!memoryDraft.trim()" @click="addMemory">
-											<Plus class="size-4" />
-											{{ t("inspector.add") }}
-										</Button>
+								<div class="nextchat-settings-row">
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">
+											{{
+												appliedPresetIds.memory
+													? boundPresetName("memory")
+													: t("settings.memoryPresetUnbound")
+											}}
+										</p>
+										<p class="nextchat-settings-row__subtitle">
+											{{
+												appliedPresetIds.memory
+													? boundPresetSummary("memory")
+													: t("settings.memoryPresetUnboundHint")
+											}}
+										</p>
 									</div>
-
-									<div v-if="agentDraft.memories.length" class="nextchat-settings__memory-list">
-										<div
-											v-for="memory in agentDraft.memories"
-											:key="memory.id"
-											class="nextchat-settings__memory-item"
-										>
-											<Brain class="mt-1 size-3.5 shrink-0 text-muted-foreground" />
-											<Textarea
-												v-model="memory.content"
-												rows="2"
-												class="min-h-12 flex-1 resize-y border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
-											/>
-											<Switch v-model="memory.enabled" />
-											<Button
-												variant="ghost"
-												size="icon"
-												class="size-7"
-												@click="removeMemory(memory.id)"
-											>
-												<Trash2 class="size-3.5" />
-											</Button>
-										</div>
-									</div>
-									<p
-										v-else
-										class="rounded-lg border border-dashed border-border p-8 text-center text-xs text-muted-foreground"
-									>
-										{{ t("settings.memoryEmpty") }}
-									</p>
+									<Button variant="outline" size="sm" @click="manageMemoryPresets">
+										<Layers class="size-3.5" />
+										{{ t("settings.managePreset") }}
+									</Button>
 								</div>
 							</section>
 
@@ -1309,10 +1568,29 @@ function formatDuration(value: number): string {
 										:placeholder="t('settings.presetSelect')"
 										@update:model-value="(id: string) => applyGroupPreset('permissions', id)"
 										@save="(name: string) => saveGroupPreset('permissions', name)"
-										@delete="(id: string) => deleteGroupPreset('permissions', id)"
+										@edit="editPreset"
+										@unbind="requestUnbindPreset('permissions')"
 									/>
 								</header>
 
+								<div
+									v-if="appliedPresetIds.permissions"
+									class="nextchat-settings-row nextchat-settings__preset-summary"
+								>
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">
+											{{ boundPresetName("permissions") }}
+										</p>
+										<p class="nextchat-settings-row__subtitle">
+											{{ boundPresetSummary("permissions") }}
+										</p>
+									</div>
+									<span class="nextchat-settings__locked-label">
+										{{ t("settings.presetLocked") }}
+									</span>
+								</div>
+
+								<template v-else>
 								<div
 									v-for="permission in permissionItems"
 									:key="permission.key"
@@ -1331,30 +1609,9 @@ function formatDuration(value: number): string {
 										</div>
 									</div>
 								</div>
+								</template>
 							</section>
 
-							<div class="nextchat-settings__savebar">
-								<div class="min-w-0">
-									<p class="nextchat-settings-row__title">
-										{{ hasDraftChanges ? t("settings.unsavedTitle") : t("settings.saved") }}
-									</p>
-									<p class="nextchat-settings-row__subtitle">{{ t("settings.saveHint") }}</p>
-								</div>
-								<div class="flex shrink-0 gap-2">
-									<Button
-										variant="outline"
-										size="sm"
-										:disabled="!hasDraftChanges"
-										@click="resetAgentDraft"
-									>
-										{{ t("settings.discard") }}
-									</Button>
-									<Button size="sm" :disabled="!canSaveAgent" @click="saveAgentDraft">
-										<BadgeCheck class="size-3.5" />
-										{{ t("settings.save") }}
-									</Button>
-								</div>
-							</div>
 						</template>
 
 						<section v-else class="nextchat-settings-list">
@@ -1395,18 +1652,6 @@ function formatDuration(value: number): string {
 									</div>
 								</div>
 
-								<div class="nextchat-settings-row">
-									<div class="nextchat-settings-row__copy">
-										<p class="nextchat-settings-row__title">{{ t("settings.conversationStatus") }}</p>
-										<p class="nextchat-settings-row__subtitle">{{ t("settings.conversationStatusHint") }}</p>
-									</div>
-									<div class="nextchat-settings-row__control">
-										<span class="nextchat-settings__status-pill" :data-status="activeConversation.status">
-											<span class="size-1.5 rounded-full"></span>
-											{{ activeConversation.status }}
-										</span>
-									</div>
-								</div>
 							</section>
 
 							<section class="nextchat-settings-list">
@@ -1464,8 +1709,36 @@ function formatDuration(value: number): string {
 										<p class="nextchat-settings-list__title">{{ t("inspector.runLimits") }}</p>
 										<p class="nextchat-settings-list__copy">{{ t("settings.runLimitsHint") }}</p>
 									</div>
+									<SettingsPresetPicker
+										group="limits"
+										:items="presetsByGroup.limits"
+										:model-value="appliedPresetIds.limits"
+										:placeholder="t('settings.presetSelect')"
+										@update:model-value="applyConversationLimitsPreset"
+										@save="saveConversationLimitsPreset"
+										@edit="editPreset"
+										@unbind="requestUnbindPreset('limits')"
+									/>
 								</header>
 
+								<div
+									v-if="appliedPresetIds.limits"
+									class="nextchat-settings-row nextchat-settings__preset-summary"
+								>
+									<div class="nextchat-settings-row__copy">
+										<p class="nextchat-settings-row__title">
+											{{ boundPresetName("limits") }}
+										</p>
+										<p class="nextchat-settings-row__subtitle">
+											{{ boundPresetSummary("limits") }}
+										</p>
+									</div>
+									<span class="nextchat-settings__locked-label">
+										{{ t("settings.presetLocked") }}
+									</span>
+								</div>
+
+								<template v-else>
 								<div class="nextchat-settings-row">
 									<div class="nextchat-settings-row__copy">
 										<p class="nextchat-settings-row__title">{{ t("inspector.mode") }}</p>
@@ -1538,6 +1811,7 @@ function formatDuration(value: number): string {
 										/>
 									</div>
 								</div>
+								</template>
 							</section>
 
 							<section class="nextchat-settings-list">
@@ -1620,6 +1894,7 @@ function formatDuration(value: number): string {
 								v-for="group in PRESET_GROUPS"
 								:key="group"
 								class="nextchat-settings-list"
+								:ref="(element) => registerPresetGroup(group, element)"
 							>
 								<header class="nextchat-settings-list__header">
 									<Layers class="size-4" />
@@ -1645,6 +1920,11 @@ function formatDuration(value: number): string {
 									v-for="preset in presetsByGroup[group]"
 									:key="preset.id"
 									class="nextchat-settings-row"
+									:class="{
+										'nextchat-settings__preset-row--highlighted':
+											highlightedPresetId === preset.id,
+									}"
+									:ref="(element) => registerPresetRow(preset.id, element)"
 								>
 									<div class="nextchat-settings-row__copy">
 										<p class="nextchat-settings-row__title">{{ preset.name }}</p>
@@ -1655,20 +1935,20 @@ function formatDuration(value: number): string {
 											<Button
 												variant="outline"
 												size="sm"
-												:disabled="!selectedAgent"
+												:disabled="!canApplyPreset(preset)"
 												:title="t('settings.presetApplyHint')"
-												@click="applyGroupPreset(preset.group, preset.id)"
+												@click="applyPresetFromLibrary(preset)"
 											>
 												{{ t("settings.presetApply") }}
 											</Button>
 											<Button
 												variant="ghost"
 												size="icon"
-												class="size-8 text-muted-foreground hover:text-destructive"
-												:title="t('settings.presetDelete')"
-												@click="deleteGroupPreset(preset.group, preset.id)"
+												class="size-8 text-muted-foreground hover:text-foreground"
+												:title="t('settings.presetEdit')"
+												@click="editPreset(preset.id)"
 											>
-												<Trash2 class="size-3.5" />
+												<Pencil class="size-3.5" />
 											</Button>
 										</div>
 									</div>
@@ -1676,9 +1956,46 @@ function formatDuration(value: number): string {
 							</section>
 						</div>
 					</template>
-				</div>
-			</main>
+							</div>
+						</div>
+					</ScrollAreaInner>
+				</ScrollArea>
+				<footer
+					v-if="activeTab === 'ai' && selectedAgent && agentDraft"
+					class="nextchat-settings__savebar"
+				>
+					<div class="min-w-0">
+						<p class="nextchat-settings-row__title">
+							{{ hasDraftChanges ? t("settings.unsavedTitle") : t("settings.saved") }}
+						</p>
+						<p class="nextchat-settings-row__subtitle">{{ t("settings.saveHint") }}</p>
+					</div>
+					<div class="flex shrink-0 gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							:disabled="!hasDraftChanges"
+							@click="resetAgentDraft"
+						>
+							{{ t("settings.discard") }}
+						</Button>
+						<Button size="sm" :disabled="!canSaveAgent" @click="saveAgentDraft">
+							<BadgeCheck class="size-3.5" />
+							{{ t("settings.save") }}
+						</Button>
+					</div>
+				</footer>
+			</div>
 		</div>
+
+		<PresetEditDialog
+			:open="Boolean(editingPreset)"
+			:preset="editingPreset"
+			:api-key="editingPresetSecret"
+			@update:open="(open: boolean) => { if (!open) editingPresetId = null }"
+			@save="saveEditedPreset"
+			@delete="deleteEditedPreset"
+		/>
 
 		<ConfirmDialog
 			:open="confirmOpen"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { nextTick, ref } from "vue"
-import { Check, Plus, Trash2, X } from "@lucide/vue"
+import { computed, nextTick, ref } from "vue"
+import { Check, Pencil, Plus, Unlink, X } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -10,30 +10,31 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select"
+import { useChatI18n } from "../i18n"
 import type {
 	AgentSettingsPreset,
 	AgentSettingsPresetGroup,
 } from "../types"
-import { useChatI18n } from "../i18n"
 
-defineProps<{
+const props = defineProps<{
 	group: AgentSettingsPresetGroup
 	items: AgentSettingsPreset[]
-	modelValue: string
+	modelValue?: string
 	placeholder: string
 }>()
-
-const { t } = useChatI18n()
 
 const emit = defineEmits<{
 	"update:modelValue": [value: string]
 	save: [name: string]
-	delete: [id: string]
+	unbind: []
+	edit: [id: string]
 }>()
 
+const { t } = useChatI18n()
 const naming = ref(false)
 const draftName = ref("")
 const inputRef = ref<HTMLInputElement | null>(null)
+const bound = computed(() => Boolean(props.modelValue))
 
 function startNaming(): void {
 	naming.value = true
@@ -55,61 +56,87 @@ function confirmSave(): void {
 </script>
 
 <template>
-	<div class="nextchat-preset-picker">
-		<template v-if="naming">
-			<Input
-				ref="inputRef"
-				v-model="draftName"
-				:placeholder="placeholder"
-				class="h-8 min-w-36 text-xs"
-				@keydown.enter="confirmSave"
-				@keydown.esc="cancelNaming"
-			/>
-			<Button variant="ghost" size="icon" class="size-8" :title="t('settings.presetSave')" @click="confirmSave">
-				<Check class="size-3.5" />
-			</Button>
-			<Button variant="ghost" size="icon" class="size-8" :title="t('settings.presetCancel')" @click="cancelNaming">
-				<X class="size-3.5" />
-			</Button>
-		</template>
+	<div class="nextchat-preset-picker" :data-preset-group="group">
+		<Select
+			:model-value="modelValue"
+			@update:model-value="(value: unknown) => emit('update:modelValue', String(value))"
+		>
+			<SelectTrigger class="nextchat-preset-picker__trigger">
+				<SelectValue :placeholder="placeholder" />
+			</SelectTrigger>
+			<SelectContent>
+				<SelectItem
+					v-for="item in items"
+					:key="item.id"
+					:value="item.id"
+				>
+					{{ item.name }}
+				</SelectItem>
+			</SelectContent>
+		</Select>
 
-		<template v-else>
-			<Select
-				:model-value="modelValue"
-				@update:model-value="(value: unknown) => emit('update:modelValue', String(value))"
-			>
-				<SelectTrigger class="nextchat-preset-picker__trigger">
-					<SelectValue :placeholder="placeholder" />
-				</SelectTrigger>
-				<SelectContent>
-					<SelectItem
-						v-for="item in items"
-						:key="item.id"
-						:value="item.id"
-					>
-						{{ item.name }}
-					</SelectItem>
-				</SelectContent>
-			</Select>
+		<template v-if="bound">
 			<Button
 				variant="ghost"
 				size="icon"
 				class="size-8"
-				:title="t('settings.presetSaveHint')"
-				@click="startNaming"
+				data-preset-action="edit"
+				:title="t('settings.presetEdit')"
+				@click="emit('edit', modelValue ?? '')"
 			>
-				<Plus class="size-3.5" />
+				<Pencil class="size-3.5" />
 			</Button>
 			<Button
-				v-if="modelValue"
 				variant="ghost"
 				size="icon"
-				class="size-8 text-muted-foreground hover:text-destructive"
-				:title="t('settings.presetDelete')"
-				@click="emit('delete', modelValue)"
+				class="size-8 text-muted-foreground"
+				data-preset-action="unbind"
+				:title="t('settings.presetUnbind')"
+				@click="emit('unbind')"
 			>
-				<Trash2 class="size-3.5" />
+				<Unlink class="size-3.5" />
 			</Button>
 		</template>
+
+		<template v-else-if="naming">
+			<Input
+				ref="inputRef"
+				v-model="draftName"
+				:placeholder="t('settings.presetNamePlaceholder')"
+				class="h-8 min-w-36 text-xs"
+				@keydown.enter="confirmSave"
+				@keydown.esc="cancelNaming"
+			/>
+			<Button
+				variant="ghost"
+				size="icon"
+				class="size-8"
+				:title="t('settings.presetSave')"
+				@click="confirmSave"
+			>
+				<Check class="size-3.5" />
+			</Button>
+			<Button
+				variant="ghost"
+				size="icon"
+				class="size-8"
+				:title="t('settings.presetCancel')"
+				@click="cancelNaming"
+			>
+				<X class="size-3.5" />
+			</Button>
+		</template>
+
+		<Button
+			v-else
+			variant="ghost"
+			size="icon"
+			class="size-8"
+			data-preset-action="create"
+			:title="t('settings.presetSaveHint')"
+			@click="startNaming"
+		>
+			<Plus class="size-3.5" />
+		</Button>
 	</div>
 </template>

@@ -88,6 +88,7 @@ function copyAgent(agent: AgentProfile): AgentProfile {
 		streaming: agent.streaming,
 		permissions: copyPermissions(agent.permissions),
 		memories: agent.memories.map(copyMemory),
+		presetBindings: agent.presetBindings ? { ...agent.presetBindings } : undefined,
 		createdAt: agent.createdAt,
 		updatedAt: agent.updatedAt,
 	}
@@ -136,6 +137,9 @@ function copyConversation(conversation: Conversation): Conversation {
 		activeAgentId: conversation.activeAgentId,
 		usage: copyUsage(conversation.usage),
 		lastMessagePreview: conversation.lastMessagePreview,
+		presetBindings: conversation.presetBindings
+			? { ...conversation.presetBindings }
+			: undefined,
 		createdAt: conversation.createdAt,
 		updatedAt: conversation.updatedAt,
 	}

@@ -85,6 +85,7 @@ export function createAgentProfile(index = 0): AgentProfile {
 		streaming: true,
 		permissions: { ...DEFAULT_PERMISSIONS },
 		memories: [],
+		presetBindings: {},
 		createdAt: now,
 		updatedAt: now,
 	}

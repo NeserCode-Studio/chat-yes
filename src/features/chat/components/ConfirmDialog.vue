@@ -24,7 +24,7 @@ const emit = defineEmits<{
 
 <template>
 	<Dialog :open="open" @update:open="(value: boolean) => !value && emit('cancel')">
-		<DialogContent :hide-close="true" class="max-w-md gap-4">
+		<DialogContent :hide-close="true" class="max-w-md gap-4" data-confirm-dialog>
 			<div>
 				<DialogTitle class="text-base font-semibold">{{ title }}</DialogTitle>
 				<DialogDescription class="mt-2 text-sm leading-6">

@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest"
-import { createAgentProfile, createMemoryEntry } from "../src/features/chat/domain"
 import {
+	createAgentProfile,
+	createMemoryEntry,
+} from "../src/features/chat/domain"
+import {
+	applyConversationPresetValues,
 	applyPresetValues,
+	collectConversationPresetValues,
 	collectPresetValues,
 	presetSecretKey,
 } from "../src/features/chat/presets"
+import type { Conversation } from "../src/features/chat/types"
 
 describe("agent settings presets", () => {
 	it("namespaces connection secrets separately from agents", () => {
@@ -48,5 +54,26 @@ describe("agent settings presets", () => {
 
 		expect(agent.memories[0].content).toBe("Prefer short plans.")
 		expect(agent.permissions.writeMemory).toBe(true)
+	})
+
+	it("round-trips conversation run limits", () => {
+		const conversation = {
+			mode: "relay",
+			roundLimit: 3,
+			requestLimit: 8,
+			tokenBudget: 24000,
+		} as Conversation
+		const values = collectConversationPresetValues(conversation)
+
+		conversation.mode = "roundtable"
+		conversation.roundLimit = 1
+		conversation.requestLimit = 1
+		conversation.tokenBudget = 1000
+		applyConversationPresetValues(conversation, values)
+
+		expect(conversation.mode).toBe("relay")
+		expect(conversation.roundLimit).toBe(3)
+		expect(conversation.requestLimit).toBe(8)
+		expect(conversation.tokenBudget).toBe(24000)
 	})
 })

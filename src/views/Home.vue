@@ -20,10 +20,6 @@ import MessageComposer from "@/features/chat/components/MessageComposer.vue"
 import RunInspector from "@/features/chat/components/RunInspector.vue"
 import { useChatI18n } from "@/features/chat/i18n"
 import { createId } from "@/features/chat/ids"
-import {
-	createConversationExport,
-	saveConversationExport,
-} from "@/features/chat/export"
 import { runConversation } from "@/features/chat/orchestrator"
 import { useChatStore } from "@/features/chat/store"
 import type { ComposerSendPayload } from "@/features/chat/types"
@@ -31,7 +27,7 @@ import type { ComposerSendPayload } from "@/features/chat/types"
 const store = useChatStore()
 const dialogs = useDialogStore()
 const { t } = useChatI18n()
-const { error: toastError, info, success, warning } = useToast({
+const { error: toastError, info, warning } = useToast({
 	duration: 2800,
 })
 const activeRun = ref<AbortController | null>(null)
@@ -89,27 +85,6 @@ function deleteSession(conversationId: string): void {
 		store.deleteConversation(conversationId)
 	}
 	confirmOpen.value = true
-}
-
-async function exportSession(conversationId: string): Promise<void> {
-	const current = store.getConversation(conversationId)
-	if (!current) return
-
-	try {
-		const exportData = createConversationExport({
-			conversation: current,
-			agents: store.agents,
-			messages: store.getMessages(conversationId),
-		})
-		const result = await saveConversationExport(current, exportData)
-		if (result === "saved") {
-			success(t.value("workspace.exported"))
-		} else if (result === "downloaded") {
-			info(t.value("workspace.exportedToDownloads"))
-		}
-	} catch {
-		toastError(t.value("workspace.exportFailed"))
-	}
 }
 
 function renameSession(): void {
@@ -198,7 +173,6 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 			:collapsed="sidebarCollapsed"
 			@create="createSession"
 			@delete="deleteSession"
-			@export="exportSession"
 			@toggle="sidebarCollapsed = !sidebarCollapsed"
 		/>
 
@@ -228,22 +202,6 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 					</div>
 
 					<div class="nextchat-header__actions">
-						<button
-							type="button"
-							class="nextchat-icon-button"
-							:title="t('workspace.newSession')"
-							@click="createSession"
-						>
-							<MessageSquarePlus class="size-4" />
-						</button>
-						<button
-							type="button"
-							class="nextchat-icon-button"
-							:title="t('workspace.settings')"
-							@click="dialogs.openSettings('application')"
-						>
-							<Settings2 class="size-4" />
-						</button>
 						<button
 							type="button"
 							class="nextchat-icon-button"
