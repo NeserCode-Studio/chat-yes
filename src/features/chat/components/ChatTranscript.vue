@@ -9,6 +9,12 @@ import {
 	MessagesSquare,
 	Sparkles,
 } from "@lucide/vue"
+import {
+	PopoverContent,
+	PopoverPortal,
+	PopoverRoot,
+	PopoverTrigger,
+} from "reka-ui"
 import type { AgentProfile, ChatMessage } from "../types"
 import { useChatI18n } from "../i18n"
 import AgentAvatar from "./AgentAvatar.vue"
@@ -31,6 +37,25 @@ let copyTimer: ReturnType<typeof setTimeout> | undefined
 const lastMessageSignature = computed(() => {
 	const last = props.messages[props.messages.length - 1]
 	return `${props.messages.length}:${last?.id ?? ""}:${last?.content.length ?? 0}:${last?.reasoning?.length ?? 0}:${last?.status ?? ""}`
+})
+
+const duplicateEventIds = computed(() => {
+	const ids = new Set<string>()
+
+	for (const event of props.messages) {
+		if (event.role !== "event") continue
+		const isDuplicate = props.messages.some((message) => {
+			if (message.role !== "assistant" || !message.error) return false
+			const agentName = agentFor(message)?.name
+			return (
+				event.content === message.error ||
+				event.content === `${agentName}: ${message.error}`
+			)
+		})
+		if (isDuplicate) ids.add(event.id)
+	}
+
+	return ids
 })
 
 watch(
@@ -135,9 +160,38 @@ onBeforeUnmount(() => {
 
 			<template v-else>
 				<template v-for="message in messages" :key="message.id">
-					<div v-if="message.role === 'event'" class="nextchat-event">
-						<AlertTriangle class="size-3" />
-						{{ message.content }}
+					<div
+						v-if="message.role === 'event' && !duplicateEventIds.has(message.id)"
+						class="nextchat-event"
+					>
+						<PopoverRoot>
+							<PopoverTrigger as-child>
+								<button
+									type="button"
+									class="nextchat-event__trigger"
+									:title="t('workspace.event')"
+								>
+									<AlertTriangle class="size-3" />
+									<span>{{ t("workspace.event") }}</span>
+									<ChevronDown class="size-3" />
+								</button>
+							</PopoverTrigger>
+							<PopoverPortal>
+								<PopoverContent
+									side="top"
+									align="center"
+									:side-offset="8"
+									class="nextchat-event-popover"
+								>
+									<p class="nextchat-event-popover__content">
+										{{ message.content }}
+									</p>
+									<time class="nextchat-event-popover__time">
+										{{ formatTime(message.createdAt) }}
+									</time>
+								</PopoverContent>
+							</PopoverPortal>
+						</PopoverRoot>
 					</div>
 
 					<div
