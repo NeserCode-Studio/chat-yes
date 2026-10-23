@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Local AI planning and tooling artifacts
+.agent/
+.omo/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

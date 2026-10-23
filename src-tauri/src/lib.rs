@@ -5,6 +5,45 @@ use tauri::{
     Emitter, Position, Size,
 };
 
+const SECRET_SERVICE: &str = "Chat Yes";
+
+fn secret_entry(agent_id: &str) -> Result<keyring::Entry, String> {
+    if agent_id.trim().is_empty() {
+        return Err("Agent id is required".to_string());
+    }
+
+    keyring::Entry::new(SECRET_SERVICE, agent_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn agent_secret_get(agent_id: String) -> Result<Option<String>, String> {
+    let entry = secret_entry(&agent_id)?;
+    match entry.get_password() {
+        Ok(secret) => Ok(Some(secret)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+fn agent_secret_set(agent_id: String, secret: String) -> Result<(), String> {
+    if secret.trim().is_empty() {
+        return Err("Secret is required".to_string());
+    }
+
+    secret_entry(&agent_id)?.set_password(secret.trim()).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn agent_secret_remove(agent_id: String) -> Result<(), String> {
+    let entry = secret_entry(&agent_id)?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -53,7 +92,7 @@ pub fn run() {
 
             TrayIconBuilder::new()
                 .icon(icon)
-                .tooltip("Tauri App")
+                .tooltip("Chat Yes")
                 .on_tray_icon_event(|tray, event| {
                     let (rx, ry, rw, is_right) = match event {
                         TrayIconEvent::Click {
@@ -92,7 +131,13 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, open_devtools])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            open_devtools,
+            agent_secret_get,
+            agent_secret_set,
+            agent_secret_remove
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -1,6 +1,6 @@
 export const I18nTexts = {
   "en-US": {
-    "Titlebar.default.title": "App Template",
+    "Titlebar.default.title": "Chat Yes",
     "Titlebar.menu.turnto": "Turn to",
     "Titlebar.menu.turnto.home": "Home",
     "Titlebar.menu.turnto.settings": "Settings",
@@ -8,7 +8,7 @@ export const I18nTexts = {
     "Titlebar.menu.turnto.exit": "Exit",
     "Titlebar.menu.about": "About",
     "Titlebar.menu.about.software": "Software",
-    "Titlebar.menu.about.framework": "Framework",
+    "Titlebar.menu.about.framework": "Agent settings",
     "Titlebar.operations.theme.tooltip": "Theme mode",
     "Titlebar.operations.minimize.tooltip": "Minimize",
     "Titlebar.operations.maximize.tooltip": "Maximize",
@@ -117,7 +117,7 @@ export const I18nTexts = {
     "Tray.menu.quit": "Quit",
 
     "About.title": "About {name}",
-    "About.tagline": "A Tauri + Vue application template",
+    "About.tagline": "A multi-agent chat control plane for custom completions servers",
     "About.version": "Version",
     "About.frontend": "Frontend",
     "About.identifier": "Identifier",
@@ -135,7 +135,7 @@ export const I18nTexts = {
     "SuperCommand.devtools.open": "Open developer tools",
   },
   "zh-CN": {
-    "Titlebar.default.title": "应用模板",
+    "Titlebar.default.title": "Chat Yes",
     "Titlebar.menu.turnto": "转到",
     "Titlebar.menu.turnto.home": "首页",
     "Titlebar.menu.turnto.settings": "设置",
@@ -143,7 +143,7 @@ export const I18nTexts = {
     "Titlebar.menu.turnto.exit": "退出",
     "Titlebar.menu.about": "关于",
     "Titlebar.menu.about.software": "软件",
-    "Titlebar.menu.about.framework": "框架",
+    "Titlebar.menu.about.framework": "智能体设置",
     "Titlebar.operations.theme.tooltip": "主题模式",
     "Titlebar.operations.minimize.tooltip": "最小化",
     "Titlebar.operations.maximize.tooltip": "最大化",
@@ -249,7 +249,7 @@ export const I18nTexts = {
     "Tray.menu.quit": "退出",
 
     "About.title": "关于 {name}",
-    "About.tagline": "Tauri + Vue 桌面应用模板",
+    "About.tagline": "连接自定义 Chat Completions 服务的多智能体对话控制台",
     "About.version": "版本",
     "About.frontend": "前端运行时",
     "About.identifier": "应用标识",

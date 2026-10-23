@@ -1,0 +1,199 @@
+import { createPinia, setActivePinia } from "pinia"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { completeChat } from "../src/features/chat/api"
+import { createId } from "../src/features/chat/ids"
+import { runConversation } from "../src/features/chat/orchestrator"
+import { useChatStore } from "../src/features/chat/store"
+
+vi.mock("../src/features/chat/api", () => {
+	class ChatApiError extends Error {
+		status?: number
+		retryable: boolean
+
+		constructor(message: string, status?: number, retryable = false) {
+			super(message)
+			this.status = status
+			this.retryable = retryable
+		}
+	}
+
+	return {
+		ChatApiError,
+		completeChat: vi.fn(),
+	}
+})
+
+class MemoryStorage implements Storage {
+	private values = new Map<string, string>()
+
+	get length(): number {
+		return this.values.size
+	}
+
+	clear(): void {
+		this.values.clear()
+	}
+
+	getItem(key: string): string | null {
+		return this.values.get(key) ?? null
+	}
+
+	key(index: number): string | null {
+		return [...this.values.keys()][index] ?? null
+	}
+
+	removeItem(key: string): void {
+		this.values.delete(key)
+	}
+
+	setItem(key: string, value: string): void {
+		this.values.set(key, value)
+	}
+}
+
+const completeChatMock = vi.mocked(completeChat)
+
+function prepareConversation() {
+	setActivePinia(createPinia())
+	vi.stubGlobal("localStorage", new MemoryStorage())
+	const store = useChatStore()
+	store.initialize()
+	const agent = store.addAgent()
+	agent.endpoint = "http://localhost:1234/v1"
+	agent.model = "test-model"
+	agent.maxTokens = 100
+	const conversation = store.conversations[0]
+	conversation.roundLimit = 1
+	conversation.requestLimit = 1
+	conversation.tokenBudget = 50000
+	store.addMessage(conversation.id, {
+		id: createId("message"),
+		role: "user",
+		content: "Solve the task",
+		status: "complete",
+		createdAt: Date.now(),
+	})
+	return { store, agent, conversation }
+}
+
+describe("conversation orchestration", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+
+	it("runs an explicit first turn and records usage", async () => {
+		completeChatMock.mockImplementation(async (options) => {
+			options.onDelta?.("Working on it")
+			return {
+				content: "Working on it",
+				usage: {
+					promptTokens: 10,
+					completionTokens: 3,
+					totalTokens: 13,
+				},
+				latencyMs: 120,
+			}
+		})
+		const { store, conversation } = prepareConversation()
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result.status).toBe("completed")
+		expect(completeChatMock).toHaveBeenCalledTimes(1)
+		expect(conversation.status).toBe("idle")
+		expect(conversation.usage).toEqual({
+			promptTokens: 10,
+			completionTokens: 3,
+			totalTokens: 13,
+			requestCount: 1,
+			latencyMs: 120,
+		})
+		expect(
+			store.messagesByConversation[conversation.id].find(
+				(message) => message.role === "assistant"
+			)?.content
+		).toBe("Working on it")
+	})
+
+	it("does not block later runs by cumulative request count", async () => {
+		completeChatMock.mockResolvedValue({
+			content: "Still available",
+			usage: {
+				promptTokens: 5,
+				completionTokens: 2,
+				totalTokens: 7,
+			},
+			latencyMs: 60,
+		})
+		const { store, conversation } = prepareConversation()
+		conversation.usage.requestCount = 99
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result.status).toBe("completed")
+		expect(completeChatMock).toHaveBeenCalledTimes(1)
+	})
+
+	it("refuses to send when the agent is disabled", async () => {
+		const { store, agent, conversation } = prepareConversation()
+		agent.enabled = false
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result.status).toBe("error")
+		expect(completeChatMock).not.toHaveBeenCalled()
+		expect(conversation.status).toBe("error")
+	})
+
+	it("stops before a request would exceed the token budget", async () => {
+		const { store, conversation } = prepareConversation()
+		conversation.tokenBudget = 100
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result.status).toBe("stopped")
+		expect(completeChatMock).not.toHaveBeenCalled()
+		expect(conversation.status).toBe("stopped")
+	})
+
+	it("runs only agents explicitly mentioned by the user", async () => {
+		const { store, conversation } = prepareConversation()
+		const mentioned = store.addAgent()
+		mentioned.endpoint = "http://localhost:1234/v1"
+		mentioned.model = "mentioned-model"
+		mentioned.maxTokens = 100
+		conversation.participantIds.push(mentioned.id)
+		conversation.requestLimit = 2
+		completeChatMock.mockResolvedValue({
+			content: "Mentioned agent response",
+			usage: {
+				promptTokens: 8,
+				completionTokens: 3,
+				totalTokens: 11,
+			},
+			latencyMs: 80,
+		})
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+			targetAgentIds: [mentioned.id],
+		})
+
+		expect(result.status).toBe("completed")
+		expect(completeChatMock).toHaveBeenCalledTimes(1)
+		expect(completeChatMock.mock.calls[0][0].model).toBe("mentioned-model")
+		expect(
+			store.messagesByConversation[conversation.id].find(
+				(message) => message.role === "assistant"
+			)?.agentId
+		).toBe(mentioned.id)
+	})
+})

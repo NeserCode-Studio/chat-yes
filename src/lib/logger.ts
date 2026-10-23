@@ -32,12 +32,16 @@ function isDev(): boolean {
   return import.meta.env.DEV;
 }
 
+function getStorage(): Storage | undefined {
+  return typeof localStorage === "undefined" ? undefined : localStorage;
+}
+
 /**
  * 解析生效的最低级别。
  * 优先级：localStorage 覆盖 > 构建期默认值。
  */
 function resolveThreshold(): number {
-  const override = localStorage.getItem(OVERRIDE_KEY);
+  const override = getStorage()?.getItem(OVERRIDE_KEY);
   if (override && override in LEVEL_ORDER) {
     return LEVEL_ORDER[override as LogLevel];
   }
@@ -54,8 +58,9 @@ export function refreshLogLevel(): void {
 
 /** 设置日志级别并持久化；传 undefined 表示恢复默认 */
 export function setLogLevel(level: LogLevel | undefined): void {
-  if (level === undefined) localStorage.removeItem(OVERRIDE_KEY);
-  else localStorage.setItem(OVERRIDE_KEY, level);
+  const storage = getStorage();
+  if (level === undefined) storage?.removeItem(OVERRIDE_KEY);
+  else storage?.setItem(OVERRIDE_KEY, level);
   refreshLogLevel();
 }
 

@@ -28,11 +28,12 @@
 		"core:event:default",
 		{
 			"identifier": "http:default",
-			"allow": [{ "url": "https://*.tauri.app" }],
-			"deny": [{ "url": "https://private.tauri.app" }]
+			"allow": [
+				{ "url": "http://*:*" },
+				{ "url": "https://*:*" }
+			]
 		},
 		"shell:default",
-		"http:default",
 		"core:tray:default",
 		"core:tray:allow-new",
 		"core:resources:default",

@@ -105,7 +105,7 @@ function toggleTheme() {
           {{ i18n.t("Titlebar.menu.help") }}
         </MenubarTrigger>
         <MenubarContent class="w-fit transition-all duration-100 ease-in-out">
-          <MenubarItem @select="() => router.push('/framework')">
+          <MenubarItem @select="() => dialogs.openSettings()">
             {{ i18n.t("Titlebar.menu.about.framework") }}
           </MenubarItem>
           <MenubarSeparator />

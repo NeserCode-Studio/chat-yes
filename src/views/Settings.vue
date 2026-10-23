@@ -1,307 +1,766 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue"
-import { useLocalStorage } from "@vueuse/core"
-import { useI18nStore, useTitleStore } from "@/store"
-import { useToast } from "@/composables/useToast"
+import { computed, ref, watch } from "vue"
 import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "@/components/ui/tabs"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { SettingInputItem, SettingSelectItem, SettingOptionalItem } from "@/components/setting-items"
-import {
-  CheckCircle2,
-  ChevronRight,
-  Clock,
-  History,
-  Search,
-  Settings2,
-  Trash2,
+	Activity,
+	BadgeCheck,
+	Bot,
+	Brain,
+	CheckCircle2,
+	ChevronRight,
+	Gauge,
+	KeyRound,
+	Plus,
+	Server,
+	Settings2,
+	ShieldCheck,
+	SlidersHorizontal,
+	Trash2,
+	UserRound,
 } from "@lucide/vue"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select"
+import { Slider } from "@/components/ui/slider"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { useDialogStore } from "@/store"
+import { useI18nStore, useTitleStore } from "@/store"
+import {
+	aggregateMessageUsage,
+	applyAgentPreset,
+	createMemoryEntry,
+} from "@/features/chat/domain"
+import { useChatI18n } from "@/features/chat/i18n"
+import { useChatStore } from "@/features/chat/store"
+import ConfirmDialog from "@/features/chat/components/ConfirmDialog.vue"
+import { AGENT_ACCENTS } from "@/features/chat/types"
+import type {
+	AgentPermissions,
+	AgentProfile,
+	AgentPreset,
+	AgentRole,
+} from "@/features/chat/types"
+import { validateAgent } from "@/features/chat/validation"
 
-/** 设置项索引：供搜索与「最近修改」跳转使用 */
-interface SettingIndexItem {
-  id: string
-  group: string
-  labelKey: string
-  keywords: string[]
-}
+type SettingsTab = "agents" | "general" | "usage"
+type AgentTab = "connection" | "model" | "memory" | "permissions"
+type PermissionKey = keyof AgentPermissions
 
-const SETTING_INDEX: SettingIndexItem[] = [
-  {
-    id: "title",
-    group: "general",
-    labelKey: "Settings.items.title.title",
-    keywords: ["title", "window", "标题", "窗口"],
-  },
-  {
-    id: "lang",
-    group: "general",
-    labelKey: "Settings.items.lang.title",
-    keywords: ["lang", "language", "i18n", "语言"],
-  },
-  {
-    id: "auto-complete",
-    group: "general",
-    labelKey: "Settings.items.auto-complete.title",
-    keywords: ["auto", "complete", "自动补全", "补全"],
-  },
-]
-
-interface ChangedRecord {
-  id: string
-  label: string
-  group: string
-  at: number
-}
-
-const MAX_HISTORY = 8
-
+const store = useChatStore()
 const i18n = useI18nStore()
 const titleStore = useTitleStore()
-const { success, error } = useToast({ duration: 2000 })
+const dialogs = useDialogStore()
+const { t } = useChatI18n()
+const activeTab = ref<SettingsTab>("agents")
+const agentTab = ref<AgentTab>("connection")
+const memoryDraft = ref("")
+const apiKeyDraft = ref("")
+const agentDraft = ref<AgentProfile | null>(null)
+const confirmOpen = ref(false)
+const confirmAction = ref<(() => void) | null>(null)
+const confirmTitle = ref("")
+const confirmDescription = ref("")
+const confirmLabel = ref("")
+const confirmDestructive = ref(false)
 
-/* 搜索历史 + 修改记录（localStorage 持久化） */
-const searchHistory = useLocalStorage<string[]>("settings-search-history", [])
-const changedRecords = useLocalStorage<ChangedRecord[]>(
-  "settings-changed-history",
-  []
+const selectedAgent = computed(() => store.selectedAgent)
+const savedSecret = computed(() => {
+	if (!selectedAgent.value) return ""
+	return store.getAgentSecret(selectedAgent.value.id)
+})
+const hasDraftChanges = computed(() => {
+	if (!agentDraft.value || !selectedAgent.value) return false
+	if (apiKeyDraft.value !== savedSecret.value) return true
+	return (
+		JSON.stringify(agentDraft.value) !== JSON.stringify(selectedAgent.value)
+	)
+})
+const validation = computed(() =>
+	agentDraft.value ? validateAgent(agentDraft.value) : null
 )
-
-/* 搜索状态 */
-const query = ref("")
-const activeTab = ref("search")
-const autoComplete = useLocalStorage("use-auto-complete", true)
-
-function recordChange(id: string, labelKey: string) {
-  const meta = SETTING_INDEX.find((item) => item.id === id)
-  const record: ChangedRecord = {
-    id,
-    label: i18n.t(labelKey),
-    group: meta?.group ?? "general",
-    at: Date.now(),
-  }
-  changedRecords.value = [
-    record,
-    ...changedRecords.value.filter((r) => r.id !== id),
-  ].slice(0, MAX_HISTORY)
-}
-
-function recordSearch(term: string) {
-  const s = term.trim()
-  if (!s) return
-  searchHistory.value = [
-    s,
-    ...searchHistory.value.filter((x) => x !== s),
-  ].slice(0, MAX_HISTORY)
-}
-
-function clearHistory() {
-  searchHistory.value = []
-  changedRecords.value = []
-}
-
-const results = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return []
-  return SETTING_INDEX.filter((item) => {
-    const label = i18n.t(item.labelKey).toLowerCase()
-    return (
-      label.includes(q) ||
-      item.keywords.some((k) => k.toLowerCase().includes(q))
-    )
-  })
+const selectedAgentUsage = computed(() => {
+	if (!selectedAgent.value) return aggregateMessageUsage([])
+	const messages = store.conversations.flatMap((conversation) =>
+		(store.messagesByConversation[conversation.id] ?? [])
+	)
+	return aggregateMessageUsage(
+		messages.filter((message) => message.agentId === selectedAgent.value?.id)
+	)
+})
+const averageLatency = computed(() => {
+	const requests = store.totalUsage.requestCount
+	return requests ? Math.round(store.totalUsage.latencyMs / requests) : 0
 })
 
-function jumpTo(group: string) {
-  activeTab.value = group
-  query.value = ""
-}
-
-/* setting title item */
-function titleAction(data: FormData) {
-  const value = data.get("input")
-  if (!value || value === titleStore.title)
-    return error(i18n.t("Settings.items.title.error"))
-  titleStore.setTitle(value as string)
-  recordChange("title", "Settings.items.title.title")
-  success(i18n.t("Settings.items.title.success"))
-}
-
-/* setting lang item */
-const langItems = [
-  { value: "en-US", label: "English(US)" },
-  { value: "zh-CN", label: "简体中文" },
+const roles: Array<{ value: AgentRole; label: string }> = [
+	{ value: "moderator", label: "Moderator" },
+	{ value: "analyst", label: "Analyst" },
+	{ value: "builder", label: "Builder" },
+	{ value: "reviewer", label: "Reviewer" },
+	{ value: "researcher", label: "Researcher" },
+	{ value: "custom", label: "Custom" },
 ]
-const langSelection = ref(i18n.lang)
-/* 当前语言经其他入口（@super）变化时同步下拉 */
+
+function cloneAgentProfile(agent: AgentProfile): AgentProfile {
+	return JSON.parse(JSON.stringify(agent)) as AgentProfile
+}
+const presets: Array<{ value: AgentPreset; label: string }> = [
+	{ value: "balanced", label: "Balanced" },
+	{ value: "concise", label: "Concise" },
+	{ value: "analytical", label: "Analytical" },
+	{ value: "creative", label: "Creative" },
+]
+const permissionItems = computed<
+	Array<{ key: PermissionKey; label: string; hint: string }>
+>(() => [
+	{
+		key: "shareConversation",
+		label: t.value("permission.share"),
+		hint: t.value("permission.shareHint"),
+	},
+	{
+		key: "autoReply",
+		label: t.value("permission.auto"),
+		hint: t.value("permission.autoHint"),
+	},
+	{
+		key: "readMemory",
+		label: t.value("permission.readMemory"),
+		hint: t.value("permission.readMemoryHint"),
+	},
+	{
+		key: "writeMemory",
+		label: t.value("permission.writeMemory"),
+		hint: t.value("permission.writeMemoryHint"),
+	},
+])
+
 watch(
-  () => i18n.lang,
-  (v) => {
-    langSelection.value = v
-  }
+	() => [selectedAgent.value?.id, store.secretVersion],
+	() => {
+		agentDraft.value = selectedAgent.value
+			? cloneAgentProfile(selectedAgent.value)
+			: null
+		apiKeyDraft.value = selectedAgent.value
+			? store.getAgentSecret(selectedAgent.value.id)
+			: ""
+	},
+	{ immediate: true }
 )
 
-function langAction(data: FormData) {
-  const value = data.get("select")
-  if (!value || value === i18n.lang)
-    return error(i18n.t("Settings.items.lang.error"))
-
-  i18n.setLanguage(value as never)
-  recordChange("lang", "Settings.items.lang.title")
-  success(i18n.t("Settings.items.lang.success"))
+function requestConfirmation(options: {
+	title: string
+	description: string
+	confirmLabel: string
+	destructive?: boolean
+	action: () => void
+}): void {
+	confirmTitle.value = options.title
+	confirmDescription.value = options.description
+	confirmLabel.value = options.confirmLabel
+	confirmDestructive.value = Boolean(options.destructive)
+	confirmAction.value = options.action
+	confirmOpen.value = true
 }
 
-/* setting auto-complete item */
-function autoCompleteAction(checked: boolean) {
-  autoComplete.value = checked
-  recordChange("auto-complete", "Settings.items.auto-complete.title")
-  success(i18n.t("Settings.items.auto-complete.success"))
+function discardChangesAnd(action: () => void): void {
+	requestConfirmation({
+		title: t.value("settings.unsavedTitle"),
+		description: t.value("settings.unsavedDescription"),
+		confirmLabel: t.value("settings.discard"),
+		destructive: true,
+		action,
+	})
+}
+
+function addAgent(): void {
+	discardChangesAnd(() => {
+		store.addAgent()
+		activeTab.value = "agents"
+		agentTab.value = "connection"
+	})
+}
+
+function deleteAgent(): void {
+	const agent = selectedAgent.value
+	if (!agent) return
+	requestConfirmation({
+		title: t.value("settings.deleteAgent"),
+		description: t.value("settings.deleteConfirm"),
+		confirmLabel: t.value("settings.deleteAgent"),
+		destructive: true,
+		action: async () => {
+			await store.removeAgent(agent.id)
+			agentDraft.value = store.selectedAgent
+				? cloneAgentProfile(store.selectedAgent)
+				: null
+		},
+	})
+}
+
+function selectAgent(agentId: string): void {
+	if (selectedAgent.value?.id === agentId) return
+	if (hasDraftChanges.value) {
+		discardChangesAnd(() => {
+			store.selectedAgentId = agentId
+		})
+		return
+	}
+	store.selectedAgentId = agentId
+}
+
+function setTopTab(tab: SettingsTab): void {
+	if (tab === activeTab.value) return
+	if (activeTab.value === "agents" && hasDraftChanges.value) {
+		discardChangesAnd(() => {
+			activeTab.value = tab
+		})
+		return
+	}
+	activeTab.value = tab
+}
+
+async function saveAgentDraft(): Promise<void> {
+	const agent = selectedAgent.value
+	const draft = agentDraft.value
+	if (!agent || !draft) return
+	Object.assign(agent, draft)
+	agent.updatedAt = Date.now()
+	await store.setAgentSecret(agent.id, apiKeyDraft.value)
+	agentDraft.value = cloneAgentProfile(agent)
+	apiKeyDraft.value = store.getAgentSecret(agent.id)
+}
+
+function resetAgentDraft(): void {
+	agentDraft.value = selectedAgent.value
+		? cloneAgentProfile(selectedAgent.value)
+		: null
+	apiKeyDraft.value = selectedAgent.value
+		? store.getAgentSecret(selectedAgent.value.id)
+		: ""
+}
+
+function closeSettings(): void {
+	if (activeTab.value === "agents" && hasDraftChanges.value) {
+		discardChangesAnd(() => {
+			dialogs.closeSettings()
+		})
+		return
+	}
+	dialogs.closeSettings()
+}
+
+function updatePreset(value: string): void {
+	if (!selectedAgent.value) return
+	if (!agentDraft.value) return
+	agentDraft.value.preset = value as AgentPreset
+	applyAgentPreset(agentDraft.value)
+}
+
+function setPermission(key: PermissionKey, value: boolean): void {
+	if (!agentDraft.value) return
+	agentDraft.value.permissions[key] = value
+	agentDraft.value.updatedAt = Date.now()
+}
+
+function addMemory(): void {
+	if (!agentDraft.value) return
+	agentDraft.value.memories.unshift(createMemoryEntry(memoryDraft.value))
+	agentDraft.value.updatedAt = Date.now()
+	memoryDraft.value = ""
+}
+
+function removeMemory(memoryId: string): void {
+	if (!agentDraft.value) return
+	agentDraft.value.memories = agentDraft.value.memories.filter(
+		(item) => item.id !== memoryId
+	)
+	agentDraft.value.updatedAt = Date.now()
+}
+
+function formatNumber(value: number): string {
+	return new Intl.NumberFormat(undefined, {
+		notation: value > 9999 ? "compact" : "standard",
+		maximumFractionDigits: 1,
+	}).format(value)
+}
+
+function formatDuration(value: number): string {
+	return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`
 }
 </script>
 
 <template>
-	<div class="view-settings">
-		<Tabs v-model="activeTab" class="w-full">
-			<TabsList class="w-full justify-start gap-1 rounded-xl bg-muted/50 p-1">
-				<TabsTrigger value="search" class="flex-none gap-1.5 rounded-lg">
-					<Search class="icon-md" />
-					{{ i18n.t("Settings.tabs.search") }}
-				</TabsTrigger>
-				<TabsTrigger value="general" class="flex-none gap-1.5 rounded-lg">
-					<Settings2 class="icon-md" />
-					{{ i18n.t("Settings.tabs.general") }}
-				</TabsTrigger>
-			</TabsList>
-
-			<TabsContent value="search" class="mt-5">
-				<div class="stack-5">
-					<p class="text-muted-sm">
-						{{ i18n.t("Settings.search.description") }}
+	<div class="settings-console">
+		<header class="settings-console__header">
+			<div class="settings-console__title">
+				<span class="settings-console__mark">
+					<Settings2 class="size-5" />
+				</span>
+				<div>
+					<p class="chat-eyebrow">CONTROL PLANE</p>
+					<p class="text-base font-semibold">{{ t("settings.title") }}</p>
+					<p class="mt-0.5 text-xs text-muted-foreground">
+						{{ t("settings.description") }}
 					</p>
-					<div class="relative">
-						<Search class="text-muted-foreground pointer-events-none absolute left-3 top-1/2 icon-md -translate-y-1/2" />
-						<Input
-							v-model="query"
-							@keydown="(e: KeyboardEvent) => { if (e.key === 'Enter') recordSearch(query) }"
-							:placeholder="i18n.t('Settings.search.placeholder')"
-							class="bg-muted/40 h-10 rounded-lg pl-9"
-						/>
+				</div>
+			</div>
+			<nav class="settings-tabs">
+				<button
+					v-for="tab in [
+						{ id: 'agents', label: t('settings.agents'), icon: Bot },
+						{ id: 'general', label: t('settings.general'), icon: SlidersHorizontal },
+						{ id: 'usage', label: t('settings.usage'), icon: Gauge },
+					]"
+					:key="tab.id"
+					type="button"
+					class="settings-tab"
+					:class="{ 'is-active': activeTab === tab.id }"
+					@click="setTopTab(tab.id as SettingsTab)"
+				>
+					<component :is="tab.icon" class="size-3.5" />
+					{{ tab.label }}
+				</button>
+			</nav>
+			<Button variant="outline" size="sm" class="ml-1 shrink-0" @click="closeSettings">
+				<CheckCircle2 class="size-3.5" />
+				{{ t("settings.done") }}
+			</Button>
+		</header>
+
+		<section v-if="activeTab === 'agents'" class="settings-agents">
+			<aside class="settings-agent-list">
+				<div class="flex items-center justify-between px-3 py-2">
+					<span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+						{{ t("settings.agents") }}
+					</span>
+					<Button size="icon" class="size-7" @click="addAgent">
+						<Plus class="size-3.5" />
+					</Button>
+				</div>
+				<button
+					v-for="agent in store.agents"
+					:key="agent.id"
+					type="button"
+					class="settings-agent-row"
+					:class="{ 'is-active': selectedAgent?.id === agent.id }"
+					@click="selectAgent(agent.id)"
+				>
+					<span
+						class="flex size-8 shrink-0 items-center justify-center rounded-md text-xs font-semibold text-white"
+						:style="{ backgroundColor: agent.accent }"
+					>
+						{{ agent.name.slice(0, 2) }}
+					</span>
+					<span class="min-w-0 flex-1 text-left">
+						<span class="block truncate text-xs font-semibold">{{ agent.name }}</span>
+						<span class="mt-0.5 block truncate text-xs text-muted-foreground">
+							{{ agent.model || "No model" }}
+						</span>
+					</span>
+					<ChevronRight class="size-3.5 text-muted-foreground" />
+				</button>
+				<button v-if="!store.agents.length" type="button" class="settings-agent-empty" @click="addAgent">
+					<Plus class="size-4" />
+					{{ t("settings.addAgent") }}
+				</button>
+			</aside>
+
+			<div v-if="selectedAgent && agentDraft" class="settings-agent-editor">
+				<div class="settings-agent-summary">
+					<div class="flex items-center gap-3">
+						<span
+							class="flex size-10 items-center justify-center rounded-md text-sm font-semibold text-white"
+							:style="{ backgroundColor: selectedAgent.accent }"
+						>
+							{{ selectedAgent.name.slice(0, 2) }}
+						</span>
+						<div>
+							<p class="text-sm font-semibold">{{ selectedAgent.name }}</p>
+							<p class="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+								<CheckCircle2 v-if="validation?.valid" class="size-3 text-emerald-600" />
+								<Server v-else class="size-3 text-amber-600" />
+								{{ validation?.valid ? t("settings.connectionReady") : t("settings.connectionIncomplete") }}
+							</p>
+						</div>
+					</div>
+					<div class="flex items-center gap-3">
+						<div class="text-right">
+							<p class="text-xs font-semibold">{{ agentDraft.enabled ? t("settings.enabled") : t("settings.disabled") }}</p>
+							<p class="text-xs text-muted-foreground">{{ t("settings.agentSwitchHint") }}</p>
+						</div>
+						<Switch v-model="agentDraft.enabled" />
+						<Button variant="ghost" size="icon" class="size-8 text-muted-foreground hover:text-red-600" @click="deleteAgent">
+							<Trash2 class="size-4" />
+						</Button>
+					</div>
+				</div>
+
+				<nav class="settings-agent-tabs">
+					<button
+						v-for="tab in [
+							{ id: 'connection', label: t('settings.connection'), icon: Server },
+							{ id: 'model', label: t('settings.model'), icon: SlidersHorizontal },
+							{ id: 'memory', label: t('settings.memory'), icon: Brain },
+							{ id: 'permissions', label: t('settings.permissions'), icon: ShieldCheck },
+						]"
+						:key="tab.id"
+						type="button"
+						class="settings-agent-tab"
+						:class="{ 'is-active': agentTab === tab.id }"
+						@click="agentTab = tab.id as AgentTab"
+					>
+						<component :is="tab.icon" class="size-3.5" />
+						{{ tab.label }}
+					</button>
+				</nav>
+
+				<div class="settings-agent-body">
+					<div v-if="agentTab === 'connection'" class="settings-form">
+						<div class="settings-form-grid">
+							<label class="settings-field">
+								<span>{{ t("settings.name") }}</span>
+								<Input v-model="selectedAgent.name" />
+							</label>
+							<label class="settings-field">
+								<span>{{ t("settings.role") }}</span>
+								<Select v-model="agentDraft.role">
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem v-for="role in roles" :key="role.value" :value="role.value">
+											{{ role.label }}
+										</SelectItem>
+									</SelectContent>
+								</Select>
+							</label>
+						</div>
+
+						<label class="settings-field">
+							<span>{{ t("settings.endpoint") }}</span>
+							<Input v-model="agentDraft.endpoint" placeholder="http://localhost:1234/v1" />
+							<small>{{ t("settings.endpointHint") }}</small>
+						</label>
+
+						<div class="settings-form-grid">
+							<label class="settings-field">
+								<span>{{ t("settings.modelId") }}</span>
+								<Input v-model="agentDraft.model" placeholder="gpt-4.1-mini" />
+							</label>
+							<label class="settings-field">
+								<span>{{ t("settings.apiKey") }}</span>
+								<Input
+									v-model="apiKeyDraft"
+									type="password"
+									placeholder="sk-..."
+									autocomplete="off"
+								/>
+							</label>
+						</div>
+
+						<small class="settings-secret-status">
+							<KeyRound class="size-3 shrink-0" />
+							{{ savedSecret ? t("settings.secretSaved") : t("settings.secretMissing") }}
+						</small>
+
+						<div class="settings-form-grid">
+							<label class="settings-field">
+								<span>{{ t("settings.accent") }}</span>
+								<div class="flex items-center gap-2">
+									<div class="flex items-center gap-1">
+										<Button
+											v-for="accent in AGENT_ACCENTS"
+											:key="accent"
+											variant="ghost"
+											size="icon"
+											class="size-7 rounded-full border p-0"
+											:class="agentDraft.accent === accent ? 'ring-2 ring-primary' : ''"
+											@click="agentDraft.accent = accent"
+										>
+											<span class="block size-4 rounded-full" :style="{ backgroundColor: accent }"></span>
+										</Button>
+									</div>
+									<Input v-model="agentDraft.accent" class="font-mono text-xs" />
+								</div>
+							</label>
+							<label class="settings-field">
+								<span>{{ t("settings.timeout") }}</span>
+								<Input
+									:model-value="agentDraft.timeoutMs"
+									type="number"
+									min="1000"
+									step="1000"
+									@update:model-value="agentDraft.timeoutMs = Number($event)"
+								/>
+							</label>
+						</div>
+
+						<div v-if="validation && !validation.valid" class="settings-warning">
+							<p v-for="reason in validation.reasons" :key="reason">{{ reason }}</p>
+						</div>
 					</div>
 
-					<template v-if="query.trim()">
-						<div class="stack-1">
-							<template v-if="results.length">
-								<button
-									v-for="r in results"
-									:key="r.id"
-									type="button"
-									class="group hover:border-border hover:bg-accent/50 hover:text-accent-foreground flex items-center gap-2 rounded-lg border border-transparent px-3 py-2 text-left text-sm transition-colors"
-									@click="() => { recordSearch(query); jumpTo(r.group) }"
-								>
-									<Search class="icon-action" />
-									<span class="truncate">{{ i18n.t(r.labelKey) }}</span>
-									<ChevronRight class="text-muted-foreground/50 icon-sm ml-auto shrink-0 transition-transform group-hover:translate-x-0.5" />
-								</button>
-							</template>
-							<div v-else class="text-muted-sm rounded-lg border border-dashed border-border px-3 py-6 text-center">
-								{{ i18n.t("Settings.search.empty") }}
-							</div>
+					<div v-else-if="agentTab === 'model'" class="settings-form">
+						<div class="settings-form-grid">
+							<label class="settings-field">
+								<span>{{ t("settings.preset") }}</span>
+								<Select :model-value="agentDraft.preset" @update:model-value="updatePreset(String($event))">
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem v-for="preset in presets" :key="preset.value" :value="preset.value">
+											{{ preset.label }}
+										</SelectItem>
+									</SelectContent>
+								</Select>
+							</label>
+							<label class="settings-field">
+								<span>{{ t("settings.temperature") }}</span>
+								<div class="flex items-center gap-3">
+									<Slider
+										v-model="agentDraft.temperature"
+										:min="0"
+										:max="2"
+										:step="0.1"
+										class="flex-1"
+									/>
+									<span class="w-9 text-right text-xs font-semibold tabular-nums">{{ selectedAgent.temperature.toFixed(1) }}</span>
+								</div>
+							</label>
 						</div>
-					</template>
-					<div v-else class="stack-5">
-						<template v-if="searchHistory.length || changedRecords.length">
-							<div v-if="searchHistory.length" class="stack-2">
-								<div class="row-label">
-									<Clock class="icon-sm" />
-									{{ i18n.t("Settings.search.history") }}
-								</div>
-								<div class="flex flex-wrap gap-1.5">
-									<button
-										v-for="s in searchHistory"
-										:key="s"
-										type="button"
-										class="hover:border-primary/40 hover:bg-accent hover:text-accent-foreground rounded-full border border-border/60 bg-muted/60 px-2.5 py-1 text-xs transition-colors"
-										@click="query = s"
-									>
-										{{ s }}
-									</button>
-								</div>
-							</div>
 
-							<div v-if="changedRecords.length" class="stack-2">
-								<div class="row-label">
-									<History class="icon-sm" />
-									{{ i18n.t("Settings.search.changed") }}
-								</div>
-								<div class="stack-1">
-									<button
-										v-for="r in changedRecords"
-										:key="r.id"
-										type="button"
-										class="group hover:bg-accent/50 hover:text-accent-foreground flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors"
-										@click="jumpTo(r.group)"
-									>
-										<CheckCircle2 class="icon-action" />
-										<span class="truncate">{{ r.label }}</span>
-									</button>
-								</div>
-							</div>
+						<label class="settings-field">
+							<span>{{ t("settings.systemPrompt") }}</span>
+							<Textarea v-model="agentDraft.systemPrompt" rows="5" />
+						</label>
 
-							<Button
-								type="button"
-								variant="ghost"
-								size="sm"
-								class="text-muted-foreground self-start"
-								@click="clearHistory"
-							>
-								<Trash2 class="icon-md" />
-								{{ i18n.t("Settings.search.clear") }}
+						<div class="settings-form-grid settings-form-grid--three">
+							<label class="settings-field">
+								<span>{{ t("settings.maxTokens") }}</span>
+								<Input
+									:model-value="agentDraft.maxTokens"
+									type="number"
+									min="1"
+									step="100"
+									@update:model-value="agentDraft.maxTokens = Number($event)"
+								/>
+							</label>
+							<label class="settings-field">
+								<span>{{ t("settings.contextWindow") }}</span>
+								<Input
+									:model-value="agentDraft.contextWindow"
+									type="number"
+									min="1024"
+									step="1024"
+									@update:model-value="agentDraft.contextWindow = Number($event)"
+								/>
+							</label>
+							<label class="settings-field">
+								<span>{{ t("settings.retries") }}</span>
+								<Input
+									:model-value="agentDraft.retryCount"
+									type="number"
+									min="0"
+									max="5"
+									@update:model-value="agentDraft.retryCount = Number($event)"
+								/>
+							</label>
+						</div>
+
+						<div class="settings-switch-row">
+							<div>
+								<p class="text-xs font-semibold">{{ t("settings.streaming") }}</p>
+								<p class="mt-0.5 text-xs text-muted-foreground">{{ t("settings.streamingHint") }}</p>
+							</div>
+							<Switch v-model="agentDraft.streaming" />
+						</div>
+					</div>
+
+					<div v-else-if="agentTab === 'memory'" class="settings-form">
+						<div class="settings-section-heading">
+							<div>
+								<p class="text-xs font-semibold">{{ t("settings.memory") }}</p>
+								<p class="mt-0.5 text-xs text-muted-foreground">{{ t("settings.memoryHint") }}</p>
+							</div>
+							<Brain class="size-4 text-muted-foreground" />
+						</div>
+
+						<div class="flex gap-2">
+							<Input
+								v-model="memoryDraft"
+								:placeholder="t('inspector.addMemory')"
+								@keydown.enter="addMemory"
+							/>
+							<Button :disabled="!memoryDraft.trim()" @click="addMemory">
+								<Plus class="size-4" />
+								{{ t("inspector.add") }}
 							</Button>
-						</template>
-						<div v-else class="text-muted-sm flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-3 py-10 text-center">
-							<Search class="text-muted-foreground/60 h-5 w-5" />
-							<p>{{ i18n.t("Settings.search.noHistory") }}</p>
 						</div>
+
+						<div v-if="agentDraft.memories.length" class="settings-memory-list">
+							<div v-for="memory in agentDraft.memories" :key="memory.id" class="settings-memory-row">
+								<Brain class="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+								<Textarea
+									v-model="memory.content"
+									rows="2"
+									class="min-h-12 flex-1 resize-y border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
+								/>
+								<Switch v-model="memory.enabled" />
+								<Button variant="ghost" size="icon" class="size-7" @click="removeMemory(memory.id)">
+									<Trash2 class="size-3.5" />
+								</Button>
+							</div>
+						</div>
+						<p v-else class="rounded-md border border-dashed p-8 text-center text-xs text-muted-foreground">
+							{{ t("settings.memoryEmpty") }}
+						</p>
+					</div>
+
+					<div v-else class="settings-form">
+						<div class="settings-section-heading">
+							<div>
+								<p class="text-xs font-semibold">{{ t("settings.permissions") }}</p>
+								<p class="mt-0.5 text-xs text-muted-foreground">{{ t("settings.permissionBoundary") }}</p>
+							</div>
+							<ShieldCheck class="size-4 text-muted-foreground" />
+						</div>
+
+						<div class="settings-permission-list">
+							<div v-for="permission in permissionItems" :key="permission.key" class="settings-permission-row">
+								<div class="min-w-0">
+									<p class="text-xs font-semibold">{{ permission.label }}</p>
+									<p class="mt-1 text-xs leading-5 text-muted-foreground">{{ permission.hint }}</p>
+								</div>
+								<Switch
+									:model-value="selectedAgent.permissions[permission.key]"
+									@update:model-value="(value: boolean) => setPermission(permission.key, value)"
+								/>
+							</div>
+						</div>
+
 					</div>
 				</div>
-			</TabsContent>
 
-			<TabsContent value="general" class="mt-5">
-				<div class="flex flex-col gap-4">
-					<p class="text-muted-sm">
-						{{ i18n.t("Settings.general.description") }}
-					</p>
-					<SettingInputItem
-						type="text"
-						:value="titleStore.title"
-						:placeholder="i18n.t('Settings.items.title.placeholder')"
-						:title="i18n.t('Settings.items.title.title')"
-						:description="i18n.t('Settings.items.title.description')"
-						@item-submit="titleAction"
-					/>
-					<SettingSelectItem
-						v-model="langSelection"
-						:items="langItems"
-						:label="i18n.t('Settings.items.lang.label')"
-						:placeholder="i18n.t('Settings.items.select.default.placeholder')"
-						:title="i18n.t('Settings.items.lang.title')"
-						:description="i18n.t('Settings.items.lang.description')"
-						@item-submit="langAction"
-					/>
-					<SettingOptionalItem
-						:label="i18n.t('Settings.items.auto-complete.label')"
-						:value="autoComplete"
-						id="optional.auto-complete"
-						:title="i18n.t('Settings.items.auto-complete.title')"
-						:description="i18n.t('Settings.items.auto-complete.description')"
-						@item-change="autoCompleteAction"
-					/>
+				<div class="settings-savebar">
+					<div class="min-w-0">
+						<p class="text-xs font-semibold">
+							{{ hasDraftChanges ? t("settings.unsavedTitle") : t("settings.saved") }}
+						</p>
+						<p class="text-xs text-muted-foreground">{{ t("settings.saveHint") }}</p>
+					</div>
+					<div class="flex shrink-0 gap-2">
+						<Button variant="outline" size="sm" :disabled="!hasDraftChanges" @click="resetAgentDraft">
+							{{ t("settings.discard") }}
+						</Button>
+						<Button size="sm" :disabled="!hasDraftChanges" @click="saveAgentDraft">
+							<BadgeCheck class="size-3.5" />
+							{{ t("settings.save") }}
+						</Button>
+					</div>
 				</div>
-			</TabsContent>
-		</Tabs>
+			</div>
+
+			<div v-else class="settings-agent-editor">
+				<div class="empty-inspector">
+					<UserRound class="size-5" />
+					<p class="font-medium">{{ t("settings.noAgent") }}</p>
+					<Button class="mt-2" @click="addAgent">
+						<Plus class="size-4" />
+						{{ t("settings.addAgent") }}
+					</Button>
+				</div>
+			</div>
+		</section>
+
+		<section v-else-if="activeTab === 'general'" class="settings-page">
+			<div class="settings-page__intro">
+				<p class="chat-eyebrow">APPLICATION</p>
+				<h2>{{ t("settings.workspace") }}</h2>
+				<p>{{ t("settings.workspaceHint") }}</p>
+			</div>
+			<div class="settings-panel">
+				<label class="settings-field">
+					<span>{{ i18n.t("Settings.items.title.title") }}</span>
+					<Input
+						:model-value="titleStore.title"
+						@update:model-value="(value: string | number) => titleStore.setTitle(String(value))"
+					/>
+				</label>
+				<label class="settings-field">
+					<span>{{ i18n.t("Settings.items.lang.label") }}</span>
+					<Select :model-value="i18n.lang" @update:model-value="i18n.setLanguage(String($event) as never)">
+						<SelectTrigger>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="zh-CN">简体中文</SelectItem>
+							<SelectItem value="en-US">English (US)</SelectItem>
+						</SelectContent>
+					</Select>
+				</label>
+			</div>
+		</section>
+
+		<section v-else class="settings-page">
+			<div class="settings-page__intro">
+				<p class="chat-eyebrow">OBSERVABILITY</p>
+				<h2>{{ t("settings.usage") }}</h2>
+				<p>{{ t("settings.usageHint") }}</p>
+			</div>
+			<div class="usage-overview">
+				<div class="usage-overview__metric">
+					<Activity class="size-4 text-teal-600" />
+					<span>{{ t("settings.totalRequests") }}</span>
+					<strong>{{ formatNumber(store.totalUsage.requestCount) }}</strong>
+				</div>
+				<div class="usage-overview__metric">
+					<Gauge class="size-4 text-amber-600" />
+					<span>{{ t("settings.totalTokens") }}</span>
+					<strong>{{ formatNumber(store.totalUsage.totalTokens) }}</strong>
+				</div>
+				<div class="usage-overview__metric">
+					<Server class="size-4 text-blue-600" />
+					<span>{{ t("inspector.averageLatency") }}</span>
+					<strong>{{ formatDuration(averageLatency) }}</strong>
+				</div>
+			</div>
+			<div class="settings-panel">
+				<div v-if="selectedAgent" class="flex items-center justify-between">
+					<div class="flex items-center gap-2">
+						<span class="flex size-8 items-center justify-center rounded-md text-xs font-semibold text-white" :style="{ backgroundColor: selectedAgent.accent }">
+							{{ selectedAgent.name.slice(0, 2) }}
+						</span>
+						<div>
+							<p class="text-xs font-semibold">{{ selectedAgent.name }}</p>
+							<p class="text-xs text-muted-foreground">{{ t("settings.agentUsage") }}</p>
+						</div>
+					</div>
+					<div class="text-right">
+						<p class="text-lg font-semibold tabular-nums">{{ formatNumber(selectedAgentUsage.totalTokens) }}</p>
+						<p class="text-xs text-muted-foreground">{{ selectedAgentUsage.requestCount }} requests</p>
+					</div>
+				</div>
+				<p v-else class="text-xs text-muted-foreground">{{ t("settings.noUsage") }}</p>
+			</div>
+		</section>
+
+		<ConfirmDialog
+			:open="confirmOpen"
+			:title="confirmTitle"
+			:description="confirmDescription"
+			:confirm-label="confirmLabel"
+			:cancel-label="t('settings.cancel')"
+			:destructive="confirmDestructive"
+			@confirm="confirmOpen = false; confirmAction?.(); confirmAction = null"
+			@cancel="confirmOpen = false; confirmAction = null"
+		/>
 	</div>
 </template>
