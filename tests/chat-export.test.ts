@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAgentProfile, createMemoryEntry } from "../src/features/chat/domain"
 import {
 	CONVERSATION_EXPORT_VERSION,
 	conversationExportFilename,
 	createConversationExport,
+	saveConversationExport,
 } from "../src/features/chat/export"
 import type {
 	AgentProfile,
@@ -79,6 +80,10 @@ function prepareExport() {
 }
 
 describe("conversation export", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals()
+	})
+
 	it("includes configuration, messages, events and reasoning without secrets", () => {
 		const { agent, conversation, messages } = prepareExport()
 		const exportedAt = new Date("2026-10-24T04:30:00.000Z")
@@ -131,5 +136,46 @@ describe("conversation export", () => {
 		for (const character of '<>:"/\\|?*') {
 			expect(filename).not.toContain(character)
 		}
+	})
+
+	it("writes the export through the system save picker", async () => {
+		const { agent, conversation, messages } = prepareExport()
+		const write = vi.fn().mockResolvedValue(undefined)
+		const close = vi.fn().mockResolvedValue(undefined)
+		const abort = vi.fn().mockResolvedValue(undefined)
+		const showSaveFilePicker = vi.fn().mockResolvedValue({
+			createWritable: async () => ({ write, close, abort }),
+		})
+		vi.stubGlobal("window", { showSaveFilePicker })
+		const data = createConversationExport({
+			conversation,
+			agents: [agent],
+			messages,
+		})
+
+		const result = await saveConversationExport(conversation, data)
+
+		expect(result).toBe("saved")
+		expect(showSaveFilePicker).toHaveBeenCalledOnce()
+		expect(write).toHaveBeenCalledWith(expect.any(Blob))
+		expect(close).toHaveBeenCalledOnce()
+		expect(abort).not.toHaveBeenCalled()
+	})
+
+	it("does not report an error when the save picker is cancelled", async () => {
+		const { agent, conversation, messages } = prepareExport()
+		const showSaveFilePicker = vi
+			.fn()
+			.mockRejectedValue(new DOMException("Cancelled", "AbortError"))
+		vi.stubGlobal("window", { showSaveFilePicker })
+		const data = createConversationExport({
+			conversation,
+			agents: [agent],
+			messages,
+		})
+
+		const result = await saveConversationExport(conversation, data)
+
+		expect(result).toBe("cancelled")
 	})
 })

@@ -22,7 +22,7 @@ import { useChatI18n } from "@/features/chat/i18n"
 import { createId } from "@/features/chat/ids"
 import {
 	createConversationExport,
-	downloadConversationExport,
+	saveConversationExport,
 } from "@/features/chat/export"
 import { runConversation } from "@/features/chat/orchestrator"
 import { useChatStore } from "@/features/chat/store"
@@ -91,7 +91,7 @@ function deleteSession(conversationId: string): void {
 	confirmOpen.value = true
 }
 
-function exportSession(conversationId: string): void {
+async function exportSession(conversationId: string): Promise<void> {
 	const current = store.getConversation(conversationId)
 	if (!current) return
 
@@ -101,8 +101,12 @@ function exportSession(conversationId: string): void {
 			agents: store.agents,
 			messages: store.getMessages(conversationId),
 		})
-		downloadConversationExport(current, exportData)
-		success(t.value("workspace.exported"))
+		const result = await saveConversationExport(current, exportData)
+		if (result === "saved") {
+			success(t.value("workspace.exported"))
+		} else if (result === "downloaded") {
+			info(t.value("workspace.exportedToDownloads"))
+		}
 	} catch {
 		toastError(t.value("workspace.exportFailed"))
 	}

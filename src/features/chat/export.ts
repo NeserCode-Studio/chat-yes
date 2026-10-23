@@ -13,6 +13,8 @@ import type {
 
 export const CONVERSATION_EXPORT_VERSION = 1
 
+export type ConversationExportSaveResult = "saved" | "downloaded" | "cancelled"
+
 export interface ConversationExport {
 	schema: "chat-yes.conversation-export"
 	version: number
@@ -203,23 +205,69 @@ export function conversationExportFilename(
 	return `chat-yes-${title}-${timestamp}.json`
 }
 
-export function downloadConversationExport(
-	conversation: Conversation,
-	exportData: ConversationExport
-): void {
-	const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-		type: "application/json;charset=utf-8",
-	})
+function downloadBlob(blob: Blob, filename: string): void {
 	const url = URL.createObjectURL(blob)
 	const link = document.createElement("a")
 	link.href = url
 	link.style.display = "none"
-	link.download = conversationExportFilename(
-		conversation,
-		new Date(exportData.exportedAt)
-	)
+	link.download = filename
 	document.body.appendChild(link)
 	link.click()
 	link.remove()
 	setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+type SaveFilePickerWindow = Window & {
+	showSaveFilePicker?: (options: {
+		suggestedName: string
+		types: Array<{
+			description: string
+			accept: Record<string, string[]>
+		}>
+	}) => Promise<FileSystemFileHandle>
+}
+
+export async function saveConversationExport(
+	conversation: Conversation,
+	exportData: ConversationExport
+): Promise<ConversationExportSaveResult> {
+	const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+		type: "application/json;charset=utf-8",
+	})
+	const filename = conversationExportFilename(
+		conversation,
+		new Date(exportData.exportedAt)
+	)
+	const pickerWindow = window as SaveFilePickerWindow
+
+	if (pickerWindow.showSaveFilePicker) {
+		try {
+			const handle = await pickerWindow.showSaveFilePicker({
+				suggestedName: filename,
+				types: [
+					{
+						description: "JSON",
+						accept: { "application/json": [".json"] },
+					},
+				],
+			})
+			const writable = await handle.createWritable()
+			try {
+				await writable.write(blob)
+				await writable.close()
+			} catch (error) {
+				await writable.abort().catch(() => undefined)
+				throw error
+			}
+			return "saved"
+		} catch (error) {
+			if (error instanceof DOMException && error.name === "AbortError") {
+				return "cancelled"
+			}
+			throw error
+		}
+	}
+
+	downloadBlob(blob, filename)
+	return "downloaded"
 }
