@@ -1,5 +1,6 @@
 import { createPinia, setActivePinia } from "pinia"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { createAgentProfile, createMemoryEntry } from "../src/features/chat/domain"
 import { useChatStore } from "../src/features/chat/store"
 import type { ChatMessage, Conversation } from "../src/features/chat/types"
 
@@ -117,6 +118,25 @@ describe("chat store recovery", () => {
 		store.updateConversationSettings(conversation.id, { requestLimit: 6 })
 		store.updateConversationSettings(conversation.id, { tokenBudget: 2000 })
 		expect(store.getConversation(conversation.id)?.requestLimit).toBe(6)
+	})
+
+	it("migrates legacy memory preset bindings while preserving local entries", async () => {
+		const agent = createAgentProfile()
+		agent.memories = [createMemoryEntry("Keep this entry after migration.")]
+		agent.presetBindings = {
+			behavior: "preset-behavior",
+			memory: "preset-memory",
+		}
+		localStorage.setItem("chat-yes.agents.v1", JSON.stringify([agent]))
+
+		setActivePinia(createPinia())
+		const store = useChatStore()
+		await store.initialize()
+
+		const migrated = store.getAgent(agent.id)
+		expect(migrated?.presetBindings?.memory).toBeUndefined()
+		expect(migrated?.presetBindings?.behavior).toBe("preset-behavior")
+		expect(migrated?.memories[0]?.content).toBe("Keep this entry after migration.")
 	})
 
 	it("persists reusable settings presets in memory", async () => {

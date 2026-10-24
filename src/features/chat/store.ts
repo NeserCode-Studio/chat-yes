@@ -43,6 +43,8 @@ const runtimeSecrets = new Map<string, string>()
 
 function normalizeAgent(agent: AgentProfile): AgentProfile {
 	const permissions = agent.permissions
+	const presetBindings = { ...agent.presetBindings }
+	delete presetBindings.memory
 	return {
 		...agent,
 		enabled: agent.enabled ?? true,
@@ -50,7 +52,7 @@ function normalizeAgent(agent: AgentProfile): AgentProfile {
 		topP: agent.topP ?? DEFAULT_SAMPLING.topP,
 		presencePenalty: agent.presencePenalty ?? DEFAULT_SAMPLING.presencePenalty,
 		frequencyPenalty: agent.frequencyPenalty ?? DEFAULT_SAMPLING.frequencyPenalty,
-		presetBindings: { ...agent.presetBindings },
+		presetBindings,
 		permissions: {
 			shareConversation: permissions?.shareConversation ?? true,
 			autoReply: permissions?.autoReply ?? true,

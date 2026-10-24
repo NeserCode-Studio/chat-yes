@@ -113,6 +113,19 @@ export function applyPresetValues(
 	agent.updatedAt = Date.now()
 }
 
+export function addMemoryPresetValues(
+	agent: AgentProfile,
+	values: AgentSettingsPresetValues
+): number {
+	const incoming = clone<MemoryPresetValues>(values as MemoryPresetValues)
+	const existingIds = new Set(agent.memories.map((memory) => memory.id))
+	const additions = incoming.filter((memory) => !existingIds.has(memory.id))
+	if (!additions.length) return 0
+	agent.memories = [...additions, ...agent.memories]
+	agent.updatedAt = Date.now()
+	return additions.length
+}
+
 export function collectConversationPresetValues(
 	conversation: Conversation
 ): LimitsPresetValues {

@@ -23,6 +23,7 @@ import {
 	Sun,
 	Trash2,
 	Type,
+	Unlink,
 	UserRound,
 	UsersRound,
 	X,
@@ -47,10 +48,11 @@ import {
 	useTitleStore,
 } from "@/store"
 import { useAppearanceStore } from "@/store/appearance"
-import { applyAgentPreset } from "../domain"
+import { applyAgentPreset, createMemoryEntry } from "../domain"
 import { useChatI18n } from "../i18n"
 import {
 	PRESET_GROUPS,
+	addMemoryPresetValues,
 	applyPresetValues,
 	collectConversationPresetValues,
 	collectPresetValues,
@@ -84,6 +86,7 @@ import { validateAgent } from "../validation"
 import AgentAvatar from "./AgentAvatar.vue"
 import ConfirmDialog from "./ConfirmDialog.vue"
 import FontFamilyPicker from "./FontFamilyPicker.vue"
+import MemoryEntryDialog from "./MemoryEntryDialog.vue"
 import PresetEditDialog from "./PresetEditDialog.vue"
 import SettingsPresetPicker from "./SettingsPresetPicker.vue"
 
@@ -118,6 +121,7 @@ const appliedPresetIds = ref<
 })
 const editingPresetId = ref<string | null>(null)
 const editingPresetSecret = ref("")
+const memoryEntryDialogOpen = ref(false)
 const highlightedPresetId = ref("")
 const presetRowElements = new Map<string, HTMLElement>()
 const presetGroupElements = new Map<AgentSettingsPresetGroup, HTMLElement>()
@@ -238,7 +242,7 @@ function syncAgentPresetBindings(agent: AgentProfile | null): void {
 		connection: agent?.presetBindings?.connection,
 		behavior: agent?.presetBindings?.behavior,
 		generation: agent?.presetBindings?.generation,
-		memory: agent?.presetBindings?.memory,
+		memory: undefined,
 		permissions: agent?.presetBindings?.permissions,
 		limits: appliedPresetIds.value.limits,
 	}
@@ -458,6 +462,14 @@ async function applyGroupPreset(
 		(item) => item.id === id && item.group === group
 	)
 	if (!preset || !agentDraft.value) return
+	if (group === "memory") {
+		addMemoryPresetValues(agentDraft.value, preset.values)
+		const bindings = { ...agentDraft.value.presetBindings }
+		delete bindings.memory
+		agentDraft.value.presetBindings = bindings
+		appliedPresetIds.value.memory = undefined
+		return
+	}
 	applyPresetValues(agentDraft.value, group, preset.values)
 	agentDraft.value.presetBindings = {
 		...(agentDraft.value.presetBindings ?? {}),
@@ -652,7 +664,7 @@ async function saveEditedPreset(payload: {
 				...(preset.values as LimitsPresetValues),
 			})
 		}
-	} else {
+	} else if (preset.group !== "memory") {
 		for (const agent of store.agents) {
 			if (agent.presetBindings?.[preset.group] !== preset.id) continue
 			applyPresetValues(agent, preset.group, preset.values)
@@ -676,25 +688,64 @@ async function saveEditedPreset(payload: {
 	editingPresetId.value = null
 }
 
+function openMemoryEntryDialog(): void {
+	memoryEntryDialogOpen.value = true
+}
+
+async function saveMemoryEntryFromDialog(payload: {
+	presetId?: string
+	presetName: string
+	content: string
+}): Promise<void> {
+	const content = payload.content.trim()
+	if (!content) return
+	const entry = createMemoryEntry(content)
+	let preset = payload.presetId
+		? store.presets.find(
+				(item) => item.id === payload.presetId && item.group === "memory"
+			)
+		: store.presets.find(
+				(item) =>
+					item.group === "memory" && item.name === payload.presetName.trim()
+			)
+
+	if (preset) {
+		preset = store.savePreset("memory", preset.name, [
+			entry,
+			...(preset.values as MemoryPresetValues),
+		])
+	} else {
+		const name = payload.presetName.trim()
+		if (!name) return
+		preset = store.savePreset("memory", name, [entry])
+	}
+
+	memoryEntryDialogOpen.value = false
+	highlightedPresetId.value = preset.id
+	await nextTick()
+	requestAnimationFrame(() => {
+		presetRowElements
+			.get(preset.id)
+			?.scrollIntoView({ behavior: "smooth", block: "center" })
+	})
+	if (highlightTimer) clearTimeout(highlightTimer)
+	highlightTimer = setTimeout(() => {
+		highlightedPresetId.value = ""
+	}, 3200)
+}
+
+function detachMemoryEntry(memoryId: string): void {
+	if (!agentDraft.value) return
+	agentDraft.value.memories = agentDraft.value.memories.filter(
+		(memory) => memory.id !== memoryId
+	)
+	agentDraft.value.updatedAt = Date.now()
+}
+
 async function deleteEditedPreset(id: string): Promise<void> {
 	const preset = store.presets.find((item) => item.id === id)
 	await deleteGroupPreset(preset?.group ?? "connection", id)
 	editingPresetId.value = null
-}
-
-async function manageMemoryPresets(): Promise<void> {
-	const boundId = appliedPresetIds.value.memory
-	if (boundId) {
-		await editPreset(boundId)
-		return
-	}
-	activeTab.value = "presets"
-	await nextTick()
-	requestAnimationFrame(() => {
-		presetGroupElements
-			.get("memory")
-			?.scrollIntoView({ behavior: "smooth", block: "start" })
-	})
 }
 
 onBeforeUnmount(() => {
@@ -1545,36 +1596,47 @@ function boundConnectionHasTimeout(): boolean {
 									<SettingsPresetPicker
 										group="memory"
 										:items="presetsByGroup.memory"
-										:model-value="appliedPresetIds.memory"
-										:placeholder="t('settings.presetSelect')"
+										:allow-create="false"
+										:reset-on-select="true"
+										:placeholder="t('settings.memoryAddPreset')"
 										@update:model-value="(id: string) => applyGroupPreset('memory', id)"
-										@save="(name: string) => saveGroupPreset('memory', name)"
-										@edit="editPreset"
-										@unbind="requestUnbindPreset('memory')"
 									/>
 								</header>
 
-								<div class="nextchat-settings-row">
-									<div class="nextchat-settings-row__copy">
-										<p class="nextchat-settings-row__title">
-											{{
-												appliedPresetIds.memory
-													? boundPresetName("memory")
-													: t("settings.memoryPresetUnbound")
-											}}
-										</p>
-										<p class="nextchat-settings-row__subtitle">
-											{{
-												appliedPresetIds.memory
-													? boundPresetSummary("memory")
-													: t("settings.memoryPresetUnboundHint")
-											}}
-										</p>
+								<div class="nextchat-settings-row is-vertical">
+									<div
+										v-if="agentDraft.memories.length"
+										class="nextchat-settings__memory-list"
+									>
+										<div
+											v-for="memory in agentDraft.memories"
+											:key="memory.id"
+											class="nextchat-settings__memory-item"
+										>
+											<Brain class="mt-1 size-3.5 shrink-0 text-muted-foreground" />
+											<Textarea
+												v-model="memory.content"
+												rows="2"
+												class="min-h-12 flex-1 resize-y border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
+											/>
+											<Switch v-model="memory.enabled" />
+											<Button
+												variant="ghost"
+												size="icon"
+												class="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+												:title="t('settings.memoryEntryUnbindHint')"
+												@click="detachMemoryEntry(memory.id)"
+											>
+												<Unlink class="size-3.5" />
+											</Button>
+										</div>
 									</div>
-									<Button variant="outline" size="sm" @click="manageMemoryPresets">
-										<Layers class="size-3.5" />
-										{{ t("settings.managePreset") }}
-									</Button>
+									<p
+										v-else
+										class="rounded-lg border border-dashed border-border p-8 text-center text-xs text-muted-foreground"
+									>
+										{{ t("settings.memoryEmptyHint") }}
+									</p>
 								</div>
 							</section>
 
@@ -1932,11 +1994,25 @@ function boundConnectionHasTimeout(): boolean {
 											}}
 										</p>
 									</div>
+									<Button
+										v-if="group === 'memory'"
+										variant="outline"
+										size="sm"
+										class="ml-auto shrink-0"
+										@click="openMemoryEntryDialog"
+									>
+										<Plus class="size-3.5" />
+										{{ t("settings.memoryEntryCreate") }}
+									</Button>
 								</header>
 
 								<div v-if="!presetsByGroup[group].length" class="nextchat-settings-row">
 									<p class="nextchat-settings-row__subtitle">
-										{{ t("settings.presetEmptyHint") }}
+										{{
+											group === "memory"
+												? t("settings.memoryPresetEmptyHint")
+												: t("settings.presetEmptyHint")
+										}}
 									</p>
 								</div>
 
@@ -1960,10 +2036,18 @@ function boundConnectionHasTimeout(): boolean {
 												variant="outline"
 												size="sm"
 												:disabled="!canApplyPreset(preset)"
-												:title="t('settings.presetApplyHint')"
+												:title="
+													preset.group === 'memory'
+														? t('settings.memoryPresetAddHint')
+														: t('settings.presetApplyHint')
+												"
 												@click="applyPresetFromLibrary(preset)"
 											>
-												{{ t("settings.presetApply") }}
+												{{
+													preset.group === "memory"
+														? t("settings.memoryPresetAdd")
+														: t("settings.presetApply")
+												}}
 											</Button>
 											<Button
 												variant="ghost"
@@ -2011,6 +2095,13 @@ function boundConnectionHasTimeout(): boolean {
 				</footer>
 			</div>
 		</div>
+
+		<MemoryEntryDialog
+			:open="memoryEntryDialogOpen"
+			:presets="presetsByGroup.memory"
+			@update:open="memoryEntryDialogOpen = $event"
+			@save="saveMemoryEntryFromDialog"
+		/>
 
 		<PresetEditDialog
 			:open="Boolean(editingPreset)"

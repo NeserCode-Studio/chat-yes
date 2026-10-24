@@ -2747,6 +2747,11 @@ body,
   padding: 13px 18px;
 }
 
+.nextchat-memory-entry-dialog__content {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
 .nextchat-preset-dialog__copy {
   min-width: 0;
 }
@@ -2804,12 +2809,6 @@ body,
   border-radius: 8px;
   background: var(--background);
   padding: 8px;
-}
-
-.nextchat-preset-dialog__memory-add {
-  display: flex;
-  gap: 8px;
-  margin-top: 2px;
 }
 
 .nextchat-preset-dialog__footer {

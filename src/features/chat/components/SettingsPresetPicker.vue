@@ -16,12 +16,17 @@ import type {
 	AgentSettingsPresetGroup,
 } from "../types"
 
-const props = defineProps<{
-	group: AgentSettingsPresetGroup
-	items: AgentSettingsPreset[]
-	modelValue?: string
-	placeholder: string
-}>()
+const props = withDefaults(
+	defineProps<{
+		group: AgentSettingsPresetGroup
+		items: AgentSettingsPreset[]
+		modelValue?: string
+		placeholder: string
+		allowCreate?: boolean
+		resetOnSelect?: boolean
+	}>(),
+	{ allowCreate: true, resetOnSelect: false }
+)
 
 const emit = defineEmits<{
 	"update:modelValue": [value: string]
@@ -33,8 +38,14 @@ const emit = defineEmits<{
 const { t } = useChatI18n()
 const naming = ref(false)
 const draftName = ref("")
+const selectKey = ref(0)
 const inputRef = ref<HTMLInputElement | null>(null)
 const bound = computed(() => Boolean(props.modelValue))
+
+function selectPreset(value: unknown): void {
+	emit("update:modelValue", String(value))
+	if (props.resetOnSelect) selectKey.value += 1
+}
 
 function startNaming(): void {
 	naming.value = true
@@ -58,8 +69,9 @@ function confirmSave(): void {
 <template>
 	<div class="nextchat-preset-picker" :data-preset-group="group">
 		<Select
+			:key="selectKey"
 			:model-value="modelValue"
-			@update:model-value="(value: unknown) => emit('update:modelValue', String(value))"
+			@update:model-value="selectPreset"
 		>
 			<SelectTrigger class="nextchat-preset-picker__trigger">
 				<SelectValue :placeholder="placeholder" />
@@ -114,7 +126,7 @@ function confirmSave(): void {
 			</Button>
 		</template>
 
-		<template v-else-if="naming">
+		<template v-else-if="allowCreate && naming">
 			<Input
 				ref="inputRef"
 				v-model="draftName"
@@ -144,7 +156,7 @@ function confirmSave(): void {
 		</template>
 
 		<Button
-			v-else
+			v-else-if="allowCreate"
 			variant="ghost"
 			size="icon"
 			class="size-8"

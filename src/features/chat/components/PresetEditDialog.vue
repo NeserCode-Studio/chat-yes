@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
-import { Plus, Trash2, X } from "@lucide/vue"
+import { Trash2, X } from "@lucide/vue"
 import { Button } from "@/components/ui/button"
 import {
 	Dialog,
@@ -19,7 +19,6 @@ import {
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { createMemoryEntry } from "../domain"
 import { useChatI18n } from "../i18n"
 import type {
 	AgentMemoryEntry,
@@ -60,7 +59,6 @@ const { t } = useChatI18n()
 const draftName = ref("")
 const draftValues = ref<AgentSettingsPresetValues | null>(null)
 const draftApiKey = ref("")
-const memoryDraft = ref("")
 const deleteArmed = ref(false)
 
 const presetOptions: Array<{ value: AgentPreset; label: string }> = [
@@ -141,7 +139,6 @@ watch(
 			}
 		}
 		draftApiKey.value = props.apiKey ?? ""
-		memoryDraft.value = ""
 		deleteArmed.value = false
 	},
 	{ immediate: true }
@@ -153,13 +150,6 @@ watch(
 		if (props.open) draftApiKey.value = value ?? ""
 	}
 )
-
-function addMemoryEntry(): void {
-	const memory = memoryDraft.value.trim()
-	if (!memory) return
-	memories.value.unshift(createMemoryEntry(memory))
-	memoryDraft.value = ""
-}
 
 function removeMemoryEntry(id: string): void {
 	const list = memories.value
@@ -393,17 +383,6 @@ function requestDelete(): void {
 								@click="removeMemoryEntry(memory.id)"
 							>
 								<Trash2 class="size-3.5" />
-							</Button>
-						</div>
-						<div class="nextchat-preset-dialog__memory-add">
-							<Input
-								v-model="memoryDraft"
-								:placeholder="t('inspector.addMemory')"
-								@keydown.enter="addMemoryEntry"
-							/>
-							<Button :disabled="!memoryDraft.trim()" @click="addMemoryEntry">
-								<Plus class="size-4" />
-								{{ t("inspector.add") }}
 							</Button>
 						</div>
 					</div>

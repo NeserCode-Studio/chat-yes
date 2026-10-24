@@ -201,9 +201,31 @@ const texts: Record<Lang, Record<string, string>> = {
 			"Shows tokens as they arrive and reduces perceived latency.",
 		"settings.connectionReady": "Connection configuration is complete",
 		"settings.connectionIncomplete": "Complete the required connection fields",
-		"settings.memoryEmpty": "No durable notes for this agent",
 		"settings.memoryHint":
-			"Keep decisions, preferences and recurring constraints here.",
+			"Add entries from presets, then edit or detach them individually.",
+		"settings.memoryAddPreset": "Add from memory preset",
+		"settings.memoryEmptyHint":
+			"No memory entries yet. Add a preset from the heading or create entries in Presets.",
+		"settings.memoryEntryUnbindHint":
+			"Detach from this agent; the source preset is unchanged",
+		"settings.memoryEntryCreate": "New memory entry",
+		"settings.memoryEntryCreateHint":
+			"Add a durable note to an existing memory preset or create a new one.",
+		"settings.memoryEntryPreset": "Memory preset",
+		"settings.memoryEntryPresetHint":
+			"Choose which reusable set receives this entry.",
+		"settings.memoryEntryNewPreset": "New memory preset",
+		"settings.memoryEntryPresetName": "Preset name",
+		"settings.memoryEntryContent": "Memory content",
+		"settings.memoryEntryContentHint":
+			"State a durable preference, decision, or constraint.",
+		"settings.memoryEntryContentPlaceholder":
+			"What should the agent remember?",
+		"settings.memoryPresetEmptyHint":
+			"Create a memory entry to start this group.",
+		"settings.memoryPresetAdd": "Add entries",
+		"settings.memoryPresetAddHint":
+			"Add these entries to the current agent",
 		"settings.permissionBoundary":
 			"Permissions are enforced before each automated turn.",
 		"settings.agentUsage": "This agent's session usage",
@@ -280,7 +302,6 @@ const texts: Record<Lang, Record<string, string>> = {
 		"settings.presetUnbindDescription":
 			"Current values will be kept. This group will become editable again.",
 		"settings.presetLocked": "Locked by preset",
-		"settings.managePreset": "Manage preset",
 		"settings.presetDelete": "Delete preset",
 		"settings.presetDeleteConfirm": "Confirm deletion",
 		"settings.presetCancel": "Cancel",
@@ -295,9 +316,6 @@ const texts: Record<Lang, Record<string, string>> = {
 		"settings.presetGroupMemory": "Memory",
 		"settings.presetGroupPermissions": "Permissions",
 		"settings.presetGroupLimits": "Run limits",
-		"settings.memoryPresetUnbound": "No memory preset linked",
-		"settings.memoryPresetUnboundHint":
-			"Memory entries are managed in a memory preset. Create or choose one from this section.",
 		"settings.generation": "Generation",
 		"settings.generationHint":
 			"Output length, context budget and retry behavior.",
@@ -509,8 +527,24 @@ const texts: Record<Lang, Record<string, string>> = {
 		"settings.streamingHint": "边生成边显示，降低感知延迟。",
 		"settings.connectionReady": "连接配置完整",
 		"settings.connectionIncomplete": "请补齐必填连接信息",
-		"settings.memoryEmpty": "该智能体暂无长期记忆",
-		"settings.memoryHint": "在这里保存决策、偏好和反复出现的约束。",
+		"settings.memoryHint": "从预设添加记忆，并按条目编辑或解除。",
+		"settings.memoryAddPreset": "从记忆预设添加",
+		"settings.memoryEmptyHint":
+			"暂无记忆条目。可从标题处添加预设，或前往预设页新建条目。",
+		"settings.memoryEntryUnbindHint": "从当前智能体解除，来源预设不会改变",
+		"settings.memoryEntryCreate": "新建记忆条目",
+		"settings.memoryEntryCreateHint":
+			"将一条长期记忆加入现有记忆预设，或创建一个新预设。",
+		"settings.memoryEntryPreset": "记忆预设",
+		"settings.memoryEntryPresetHint": "选择接收这条记忆的可复用预设。",
+		"settings.memoryEntryNewPreset": "新建记忆预设",
+		"settings.memoryEntryPresetName": "预设名称",
+		"settings.memoryEntryContent": "记忆内容",
+		"settings.memoryEntryContentHint": "填写长期偏好、决策或约束。",
+		"settings.memoryEntryContentPlaceholder": "希望智能体记住什么？",
+		"settings.memoryPresetEmptyHint": "新建一条记忆条目来开始这个分组。",
+		"settings.memoryPresetAdd": "添加条目",
+		"settings.memoryPresetAddHint": "将这些条目添加到当前智能体",
 		"settings.permissionBoundary": "每个自动轮次开始前都会执行权限检查。",
 		"settings.agentUsage": "该智能体的会话用量",
 		"settings.noAgent": "选择或添加智能体后开始配置。",
@@ -580,7 +614,6 @@ const texts: Record<Lang, Record<string, string>> = {
 		"settings.presetUnbindDescription":
 			"当前值会保留，解除后这组选项将恢复为可自定义状态。",
 		"settings.presetLocked": "已由预设锁定",
-		"settings.managePreset": "管理预设",
 		"settings.presetDelete": "删除预设",
 		"settings.presetDeleteConfirm": "确认删除",
 		"settings.presetCancel": "取消",
@@ -594,9 +627,6 @@ const texts: Record<Lang, Record<string, string>> = {
 		"settings.presetGroupMemory": "记忆",
 		"settings.presetGroupPermissions": "权限",
 		"settings.presetGroupLimits": "运行限制",
-		"settings.memoryPresetUnbound": "尚未绑定记忆预设",
-		"settings.memoryPresetUnboundHint":
-			"记忆词条统一在记忆预设中维护。可在本节创建或选择记忆预设。",
 		"settings.generation": "生成",
 		"settings.generationHint": "输出长度、上下文预算与重试行为。",
 		"settings.topP": "Top P",

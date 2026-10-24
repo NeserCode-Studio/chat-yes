@@ -6,6 +6,7 @@ import {
 import {
 	applyConversationPresetValues,
 	applyPresetValues,
+	addMemoryPresetValues,
 	collectConversationPresetValues,
 	collectPresetValues,
 	presetSecretKey,
@@ -81,6 +82,25 @@ describe("agent settings presets", () => {
 
 		expect(agent.memories[0].content).toBe("Prefer short plans.")
 		expect(agent.permissions.writeMemory).toBe(true)
+	})
+
+	it("adds memory preset entries without replacing local memories or duplicating ids", () => {
+		const agent = createAgentProfile()
+		agent.memories = [createMemoryEntry("Keep this local note.")]
+		const localMemory = agent.memories[0]
+		const presetMemory = createMemoryEntry("Add this preset note.")
+
+		const added = addMemoryPresetValues(agent, [presetMemory])
+		const addedAgain = addMemoryPresetValues(agent, [presetMemory])
+
+		expect(added).toBe(1)
+		expect(addedAgain).toBe(0)
+		expect(agent.memories.map((memory) => memory.content)).toEqual([
+			"Add this preset note.",
+			"Keep this local note.",
+		])
+		expect(agent.memories[1]).toBe(localMemory)
+		expect(agent.memories[0]).not.toBe(presetMemory)
 	})
 
 	it("round-trips conversation run limits", () => {
