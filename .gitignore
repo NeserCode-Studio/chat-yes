@@ -18,7 +18,7 @@ dist-ssr
 !.env.example
 
 # Local AI planning and tooling artifacts
-.agent/
+.agent/*
 .omo/
 
 # Editor directories and files
