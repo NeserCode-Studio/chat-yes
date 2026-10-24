@@ -131,6 +131,12 @@ function formatTime(timestamp: number): string {
 	}).format(timestamp)
 }
 
+function visibleText(value: string): string {
+	return value
+		.replace(/^(?:[ \t]*\r?\n)+/, "")
+		.replace(/(?:\r?\n[ \t]*)+$/, "")
+}
+
 function isEventMessage(message: ChatMessage): boolean {
 	if (message.role === "event") return true
 	if (message.role !== "assistant") return false
@@ -202,19 +208,20 @@ function contentParts(message: ChatMessage): Array<{
 	text: string
 	mention: boolean
 }> {
+	const content = visibleText(message.content)
 	const names = props.agents
 		.map((agent) => agent.name)
 		.filter(Boolean)
 		.sort((left, right) => right.length - left.length)
-	if (!names.length || !message.content) {
-		return [{ text: message.content, mention: false }]
+	if (!names.length || !content) {
+		return [{ text: content, mention: false }]
 	}
 	const escaped = names.map((name) =>
 		name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 	)
 	const pattern = new RegExp(`(@(?:${escaped.join("|")}))`, "g")
 	const mentions = new Set(names.map((name) => `@${name}`))
-	return message.content
+	return content
 		.split(pattern)
 		.filter(Boolean)
 		.map((text) => ({ text, mention: mentions.has(text) }))
@@ -423,14 +430,14 @@ onBeforeUnmount(() => {
 										v-if="reasoningView(message) === 'expanded'"
 										class="nextchat-reasoning__content"
 									>
-										{{ message.reasoning }}
+										{{ visibleText(message.reasoning) }}
 									</p>
 									<p
 										v-else-if="reasoningView(message) === 'normal'"
 										class="nextchat-reasoning__preview"
 										:ref="(element) => setReasoningPreview(message.id, element)"
 									>
-										{{ message.reasoning }}
+										{{ visibleText(message.reasoning) }}
 									</p>
 								</div>
 								<p v-if="message.content" class="nextchat-message__content">

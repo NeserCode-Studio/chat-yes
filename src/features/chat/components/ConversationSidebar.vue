@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, nextTick, ref } from "vue"
 import {
 	ChevronRight,
 	MessageSquarePlus,
@@ -17,7 +17,7 @@ import { useChatI18n } from "../i18n"
 import { useChatStore } from "../store"
 import AgentAvatar from "./AgentAvatar.vue"
 
-defineProps<{
+const props = defineProps<{
 	collapsed: boolean
 }>()
 
@@ -31,6 +31,7 @@ const store = useChatStore()
 const dialogs = useDialogStore()
 const { t } = useChatI18n()
 const query = ref("")
+const searchInput = ref<{ $el?: HTMLInputElement } | null>(null)
 
 const filteredConversations = computed(() => {
 	const search = query.value.trim().toLowerCase()
@@ -49,12 +50,23 @@ function participantsFor(conversationId: string) {
 		.filter((agent) => Boolean(agent))
 		.slice(0, 3)
 }
+
+function openSearch(): void {
+	if (!props.collapsed) {
+		searchInput.value?.$el?.focus()
+		return
+	}
+	emit("toggle")
+	void nextTick(() => {
+		requestAnimationFrame(() => searchInput.value?.$el?.focus())
+	})
+}
 </script>
 
 <template>
-	<aside class="nextchat-sidebar">
+	<aside id="nextchat-sidebar" class="nextchat-sidebar">
 		<header class="nextchat-sidebar__header">
-			<div class="nextchat-brand">
+			<div class="nextchat-brand" aria-hidden="true">
 				<div class="nextchat-brand__mark" aria-hidden="true">
 					<MessagesSquare class="size-[18px]" />
 				</div>
@@ -67,6 +79,8 @@ function participantsFor(conversationId: string) {
 				type="button"
 				class="nextchat-collapse"
 				:title="collapsed ? t('workspace.expandSidebar') : t('workspace.collapseSidebar')"
+				:aria-expanded="!collapsed"
+				aria-controls="nextchat-sidebar"
 				@click="emit('toggle')"
 			>
 				<PanelLeftOpen v-if="collapsed" class="size-4" />
@@ -75,7 +89,13 @@ function participantsFor(conversationId: string) {
 		</header>
 
 		<div class="nextchat-sidebar__tools">
-			<button type="button" class="nextchat-sidebar__new" @click="emit('create')">
+			<button
+				type="button"
+				class="nextchat-sidebar__new"
+				:title="t('workspace.newSession')"
+				:aria-label="t('workspace.newSession')"
+				@click="emit('create')"
+			>
 				<MessageSquarePlus class="size-4 shrink-0" />
 				<span>{{ t("workspace.newSession") }}</span>
 			</button>
@@ -83,11 +103,22 @@ function participantsFor(conversationId: string) {
 			<div class="nextchat-sidebar__search">
 				<Search />
 				<Input
+					ref="searchInput"
 					v-model="query"
 					:placeholder="t('workspace.search')"
 					class="nextchat-sidebar__search-input text-xs"
 				/>
 			</div>
+
+			<button
+				type="button"
+				class="nextchat-sidebar__search-trigger"
+				:title="t('workspace.search')"
+				:aria-label="t('workspace.search')"
+				@click="openSearch"
+			>
+				<Search class="size-4" />
+			</button>
 		</div>
 
 		<div class="nextchat-sidebar__section-heading">
@@ -103,6 +134,8 @@ function participantsFor(conversationId: string) {
 						:key="conversation.id"
 						role="button"
 						tabindex="0"
+						:title="conversation.title"
+						:aria-label="conversation.title"
 						class="nextchat-session"
 						:class="{
 							'is-active': store.activeConversationId === conversation.id,
@@ -111,49 +144,53 @@ function participantsFor(conversationId: string) {
 						@keydown.enter.prevent="store.selectConversation(conversation.id)"
 						@keydown.space.prevent="store.selectConversation(conversation.id)"
 					>
-						<div class="nextchat-session__avatars">
-							<AgentAvatar
-								v-for="agent in participantsFor(conversation.id)"
-								:key="agent?.id"
-								:agent="agent"
-								size="sm"
-							/>
-						</div>
-						<div class="nextchat-session__copy">
-							<p class="nextchat-session__title">{{ conversation.title }}</p>
-							<p class="nextchat-session__preview">
-								{{ conversation.lastMessagePreview || t("workspace.noMessagesHint") }}
-							</p>
-							<div class="nextchat-session__meta">
-								<span
-									class="nextchat-session__status"
-									:data-status="conversation.status"
-								></span>
-								<span>
-									{{
-										t("workspace.agentCountShort", {
-											count: conversation.participantIds.length,
-										})
-									}}
-								</span>
-								<span>·</span>
-								<span>
-									{{
-										t("workspace.requestCountShort", {
-											count: conversation.usage.requestCount,
-										})
-									}}
-								</span>
+						<div class="nextchat-session__content">
+							<div class="nextchat-session__avatars">
+								<AgentAvatar
+									v-for="agent in participantsFor(conversation.id)"
+									:key="agent?.id"
+									:agent="agent"
+									size="sm"
+								/>
+							</div>
+							<div class="nextchat-session__copy">
+								<p class="nextchat-session__title">{{ conversation.title }}</p>
+								<p class="nextchat-session__preview">
+									{{ conversation.lastMessagePreview || t("workspace.noMessagesHint") }}
+								</p>
+								<div class="nextchat-session__meta">
+									<span
+										class="nextchat-session__status"
+										:data-status="conversation.status"
+									></span>
+									<span>
+										{{
+											t("workspace.agentCountShort", {
+												count: conversation.participantIds.length,
+											})
+										}}
+									</span>
+									<span>·</span>
+									<span>
+										{{
+											t("workspace.requestCountShort", {
+												count: conversation.usage.requestCount,
+											})
+										}}
+									</span>
+								</div>
 							</div>
 						</div>
-						<button
-							type="button"
-							class="nextchat-session__action nextchat-session__delete"
-							:title="t('workspace.deleteSession')"
-							@click.stop="emit('delete', conversation.id)"
-						>
-							<Trash2 class="size-3.5" />
-						</button>
+						<div class="nextchat-session__actions">
+							<button
+								type="button"
+								class="nextchat-session__action nextchat-session__delete"
+								:title="t('workspace.deleteSession')"
+								@click.stop="emit('delete', conversation.id)"
+							>
+								<Trash2 class="size-3.5" />
+							</button>
+						</div>
 					</div>
 
 					<div v-if="!filteredConversations.length" class="nextchat-sidebar__empty">

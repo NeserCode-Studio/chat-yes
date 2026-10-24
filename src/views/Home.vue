@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { useLocalStorage } from "@vueuse/core"
+import { useLocalStorage, useMediaQuery } from "@vueuse/core"
 import {
 	Bot,
 	MessageSquarePlus,
@@ -39,6 +39,7 @@ const sidebarCollapsed = useLocalStorage(
 	"chat-yes.sidebar-collapsed.v1",
 	false
 )
+const isNarrow = useMediaQuery("(max-width: 820px)")
 
 const conversation = computed(() => store.activeConversation)
 const participantCount = computed(
@@ -50,6 +51,14 @@ watch(
 	() => conversation.value?.id,
 	() => {
 		titleDraft.value = conversation.value?.title ?? ""
+	},
+	{ immediate: true }
+)
+
+watch(
+	isNarrow,
+	(narrow) => {
+		if (narrow) sidebarCollapsed.value = true
 	},
 	{ immediate: true }
 )
@@ -167,7 +176,10 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 <template>
 	<div
 		class="nextchat-shell"
-		:class="{ 'is-sidebar-collapsed': sidebarCollapsed }"
+		:class="{
+			'is-sidebar-collapsed': sidebarCollapsed,
+			'is-sidebar-expanded': !sidebarCollapsed,
+		}"
 	>
 		<ConversationSidebar
 			:collapsed="sidebarCollapsed"
