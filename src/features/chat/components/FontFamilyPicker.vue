@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 import { useLocalStorage } from "@vueuse/core"
 import {
-	ChevronDown,
 	CircleAlert,
 	Clock3,
+	List,
 	LoaderCircle,
 	Plus,
 	RefreshCw,
@@ -12,15 +12,19 @@ import {
 	Search,
 	SearchX,
 	Trash2,
+	Type,
+	X,
 } from "@lucide/vue"
-import {
-	PopoverContent,
-	PopoverPortal,
-	PopoverRoot,
-	PopoverTrigger,
-} from "reka-ui"
 import { Button } from "@/components/ui/button"
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogTitle,
+	DialogTrigger,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { ScrollArea, ScrollAreaInner } from "@/components/ui/scroll-area"
 import { createLogger } from "@/lib/logger"
 import { useChatI18n } from "../i18n"
 import {
@@ -243,16 +247,20 @@ async function loadFonts(force = false): Promise<void> {
 onMounted(() => {
 	void loadFonts()
 })
+
+watch(open, (value) => {
+	if (value) searchQuery.value = ""
+})
 </script>
 
 <template>
 	<div class="nextchat-font-picker">
-		<PopoverRoot v-model:open="open">
-			<PopoverTrigger as-child>
+		<Dialog v-model:open="open">
+			<DialogTrigger as-child>
 				<button
 					type="button"
 					class="nextchat-font-picker__trigger"
-					:aria-expanded="open"
+					:class="{ 'is-open': open }"
 				>
 					<span
 						class="nextchat-font-picker__trigger-sample"
@@ -271,187 +279,249 @@ onMounted(() => {
 							{{ selectedFonts.length }} · {{ genericFallback }}
 						</span>
 					</span>
-					<ChevronDown
-						class="nextchat-font-picker__chevron"
-						:class="{ 'is-open': open }"
-					/>
+					<List class="nextchat-font-picker__trigger-icon" />
 				</button>
-			</PopoverTrigger>
+			</DialogTrigger>
 
-			<PopoverPortal>
-				<PopoverContent
-					side="bottom"
-					align="end"
-					:side-offset="6"
-					class="nextchat-font-picker__popover"
-				>
-					<header class="nextchat-font-picker__header">
-						<div class="nextchat-font-picker__heading">
-							<p>{{ t("settings.fontFamilyChoose") }}</p>
-							<span>
-								{{
-									isLoadingFonts
-										? t("settings.fontFamilyLoading")
-										: t("settings.fontFamilyCount", {
-												count: installedFonts.length,
-											})
-								}}
-							</span>
-						</div>
-						<div class="nextchat-font-picker__header-actions">
-							<Button
-								variant="ghost"
-								size="icon"
-								class="size-7"
-								:disabled="isLoadingFonts"
-								:title="t('settings.fontFamilyRefresh')"
-								@click="loadFonts(true)"
-							>
-								<RefreshCw
-									class="size-3.5"
-									:class="{ 'is-spinning': isLoadingFonts }"
-								/>
-							</Button>
-							<Button
-								variant="ghost"
-								size="sm"
-								class="h-7 px-2 text-xs"
-								@click="resetFonts"
-							>
-								<RotateCcw class="size-3.5" />
-								{{ t("settings.fontFamilyReset") }}
-							</Button>
-						</div>
-					</header>
+			<DialogContent
+				:hide-close="true"
+				class="nextchat-font-dialog"
+			>
+				<header class="nextchat-font-dialog__header">
+					<div class="nextchat-font-dialog__title">
+						<DialogTitle>{{ t("settings.fontFamilyDialogTitle") }}</DialogTitle>
+						<DialogDescription>
+							{{ t("settings.fontFamilyHint") }}
+						</DialogDescription>
+					</div>
+					<div class="nextchat-font-dialog__actions">
+						<Button
+							variant="ghost"
+							size="icon"
+							:title="t('settings.fontFamilyRefresh')"
+							:disabled="isLoadingFonts"
+							@click="loadFonts(true)"
+						>
+							<RefreshCw
+								class="size-4"
+								:class="{ 'is-spinning': isLoadingFonts }"
+							/>
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							class="px-2.5 text-xs"
+							@click="resetFonts"
+						>
+							<RotateCcw class="size-3.5" />
+							{{ t("settings.fontFamilyReset") }}
+						</Button>
+						<Button
+							variant="ghost"
+							size="icon"
+							:title="t('settings.cancel')"
+							@click="open = false"
+						>
+							<X class="size-4" />
+						</Button>
+					</div>
+				</header>
 
-					<label class="nextchat-font-picker__search">
-						<Search class="size-3.5" />
+				<div class="nextchat-font-dialog__toolbar">
+					<label class="nextchat-font-dialog__search">
+						<Search class="size-4" />
 						<Input
 							v-model="searchQuery"
 							:aria-label="t('settings.fontFamilySearch')"
 							:placeholder="t('settings.fontFamilySearch')"
-							class="h-8 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+							class="h-9 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
 						/>
 					</label>
+					<span class="nextchat-font-dialog__result-count">
+						{{
+							isLoadingFonts
+								? t("settings.fontFamilyLoading")
+								: t("settings.fontFamilyCount", {
+										count: installedFonts.length,
+									})
+						}}
+					</span>
+				</div>
 
-					<div class="nextchat-font-picker__list">
-						<div
-							v-if="fontLoadFailed"
-							class="nextchat-font-picker__notice is-error"
-							role="alert"
-						>
-							<CircleAlert class="size-3.5" />
-							<span>{{ t("settings.fontFamilyLoadFailed") }}</span>
-							<button type="button" @click="loadFonts(true)">
-								{{ t("settings.fontFamilyRetry") }}
-							</button>
-						</div>
-						<div
-							v-else-if="
-								hasLoadedFonts &&
-								fontSource === 'unavailable' &&
-								!installedFonts.length
-							"
-							class="nextchat-font-picker__notice"
-						>
-							<CircleAlert class="size-3.5" />
-							<span>{{ t("settings.fontFamilyNoAccess") }}</span>
-						</div>
-
-						<div
-							v-if="isLoadingFonts && !knownFonts.length"
-							class="nextchat-font-picker__state"
-						>
-							<LoaderCircle class="size-5 is-spinning" />
-							<p>{{ t("settings.fontFamilyLoading") }}</p>
-						</div>
-						<div
-							v-else-if="!filteredFontOptions.length"
-							class="nextchat-font-picker__state"
-						>
-							<SearchX class="size-5" />
-							<p>
-								{{
-									searchQuery.trim()
-										? t("settings.fontFamilyNoResults")
-										: t("settings.fontFamilyNoLocal")
-								}}
-							</p>
-							<span>{{ t("settings.fontFamilyNoResultsHint") }}</span>
-						</div>
-						<template v-else>
-							<div
-								v-for="font in filteredFontOptions"
-								:key="font"
-								class="nextchat-font-picker__option-row"
-								:data-font-name="font"
-							>
-								<button
-									type="button"
-									class="nextchat-font-picker__option"
-									:class="{ 'is-selected': isSelected(font) }"
-									:aria-pressed="isSelected(font)"
-									@click="toggleFont(font)"
+				<div class="nextchat-font-dialog__body">
+					<aside class="nextchat-font-dialog__selected">
+						<header class="nextchat-font-dialog__section-header">
+							<p>{{ t("settings.fontFamilySelected") }}</p>
+							<span>{{ selectedFonts.length }}</span>
+						</header>
+						<ScrollArea class="nextchat-font-dialog__selected-scroll">
+							<ScrollAreaInner>
+								<div
+									v-if="selectedFonts.length"
+									class="nextchat-font-dialog__selected-list"
 								>
-									<span
-										class="nextchat-font-picker__option-sample"
-										:style="previewStyle(font)"
+									<div
+										v-for="font in selectedFonts"
+										:key="font"
+										class="nextchat-font-dialog__selected-item"
 									>
-										Aa
-									</span>
-									<span
-										class="nextchat-font-picker__option-label"
-										:style="previewStyle(font)"
-									>
-										{{ font }}
-									</span>
-									<Clock3
-										v-if="isRemembered(font)"
-										class="nextchat-font-picker__memory"
-										:title="t('settings.fontFamilyRecent')"
-									/>
-									<span
-										v-if="isSelected(font)"
-										class="nextchat-font-picker__position"
-									>
-										{{ selectedIndex(font) + 1 }}
-									</span>
-									<span v-else class="nextchat-font-picker__check" />
-								</button>
-								<button
-									v-if="isRemembered(font)"
-									type="button"
-									class="nextchat-font-picker__forget"
-									:title="t('settings.fontFamilyForget')"
-									@click="forgetFont(font)"
+										<span class="nextchat-font-picker__position">
+											{{ selectedIndex(font) + 1 }}
+										</span>
+										<span
+											class="nextchat-font-dialog__selected-name"
+											:style="previewStyle(font)"
+										>
+											{{ font }}
+										</span>
+										<button
+											type="button"
+											class="nextchat-font-dialog__selected-remove"
+											:title="t('settings.fontFamilyRemove')"
+											@click="toggleFont(font)"
+										>
+											<X class="size-3.5" />
+										</button>
+									</div>
+								</div>
+								<div
+									v-else
+									class="nextchat-font-dialog__selected-empty"
 								>
-									<Trash2 class="size-3.5" />
-								</button>
-							</div>
-						</template>
-					</div>
+									<Type class="size-5" />
+									<p>{{ t("settings.fontFamilySelectedEmpty") }}</p>
+								</div>
+							</ScrollAreaInner>
+						</ScrollArea>
+					</aside>
 
-					<form
-						class="nextchat-font-picker__custom"
-						@submit.prevent="addCustomFont"
+					<section class="nextchat-font-dialog__available">
+						<header class="nextchat-font-dialog__section-header">
+							<p>{{ t("settings.fontFamilyAvailable") }}</p>
+							<span>{{ filteredFontOptions.length }}</span>
+						</header>
+						<ScrollArea class="nextchat-font-dialog__available-scroll">
+							<ScrollAreaInner>
+								<div class="nextchat-font-dialog__available-content">
+									<div
+										v-if="fontLoadFailed"
+										class="nextchat-font-picker__notice is-error"
+										role="alert"
+									>
+										<CircleAlert class="size-3.5" />
+										<span>{{ t("settings.fontFamilyLoadFailed") }}</span>
+										<button type="button" @click="loadFonts(true)">
+											{{ t("settings.fontFamilyRetry") }}
+										</button>
+									</div>
+									<div
+										v-else-if="
+											hasLoadedFonts &&
+											fontSource === 'unavailable' &&
+											!installedFonts.length
+										"
+										class="nextchat-font-picker__notice"
+									>
+										<CircleAlert class="size-3.5" />
+										<span>{{ t("settings.fontFamilyNoAccess") }}</span>
+									</div>
+
+									<div
+										v-if="isLoadingFonts && !knownFonts.length"
+										class="nextchat-font-picker__state"
+									>
+										<LoaderCircle class="size-5 is-spinning" />
+										<p>{{ t("settings.fontFamilyLoading") }}</p>
+									</div>
+									<div
+										v-else-if="!filteredFontOptions.length"
+										class="nextchat-font-picker__state"
+									>
+										<SearchX class="size-5" />
+										<p>
+											{{
+												searchQuery.trim()
+													? t("settings.fontFamilyNoResults")
+													: t("settings.fontFamilyNoLocal")
+											}}
+										</p>
+										<span>{{ t("settings.fontFamilyNoResultsHint") }}</span>
+									</div>
+									<div v-else class="nextchat-font-dialog__grid">
+										<div
+											v-for="font in filteredFontOptions"
+											:key="font"
+											class="nextchat-font-picker__option-row"
+											:data-font-name="font"
+										>
+											<button
+												type="button"
+												class="nextchat-font-picker__option"
+												:class="{ 'is-selected': isSelected(font) }"
+												:aria-pressed="isSelected(font)"
+												@click="toggleFont(font)"
+											>
+												<span
+													class="nextchat-font-picker__option-sample"
+													:style="previewStyle(font)"
+												>
+													Aa
+												</span>
+												<span
+													class="nextchat-font-picker__option-label"
+													:style="previewStyle(font)"
+												>
+													{{ font }}
+												</span>
+												<Clock3
+													v-if="isRemembered(font)"
+													class="nextchat-font-picker__memory"
+													:title="t('settings.fontFamilyRecent')"
+												/>
+												<span
+													v-if="isSelected(font)"
+													class="nextchat-font-picker__position"
+												>
+													{{ selectedIndex(font) + 1 }}
+												</span>
+												<span v-else class="nextchat-font-picker__check" />
+											</button>
+											<button
+												v-if="isRemembered(font)"
+												type="button"
+												class="nextchat-font-picker__forget"
+												:title="t('settings.fontFamilyForget')"
+												@click="forgetFont(font)"
+											>
+												<Trash2 class="size-3.5" />
+											</button>
+										</div>
+									</div>
+								</div>
+							</ScrollAreaInner>
+						</ScrollArea>
+					</section>
+				</div>
+
+				<form
+					class="nextchat-font-dialog__custom"
+					@submit.prevent="addCustomFont"
+				>
+					<Input
+						v-model="customDraft"
+						:placeholder="t('settings.fontFamilyCustomPlaceholder')"
+						class="h-9 min-w-0 flex-1 text-xs"
+					/>
+					<Button
+						type="submit"
+						class="h-9 shrink-0"
+						:disabled="!customDraft.trim()"
 					>
-						<Input
-							v-model="customDraft"
-							:placeholder="t('settings.fontFamilyCustomPlaceholder')"
-							class="h-9 min-w-0 flex-1 text-xs"
-						/>
-						<Button
-							type="submit"
-							size="icon"
-							class="size-9 shrink-0"
-							:disabled="!customDraft.trim()"
-							:title="t('settings.fontFamilyAdd')"
-						>
-							<Plus class="size-4" />
-						</Button>
-					</form>
-				</PopoverContent>
-			</PopoverPortal>
-		</PopoverRoot>
+						<Plus class="size-4" />
+						{{ t("settings.fontFamilyAdd") }}
+					</Button>
+				</form>
+			</DialogContent>
+		</Dialog>
 	</div>
 </template>
