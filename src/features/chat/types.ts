@@ -173,6 +173,7 @@ export type AgentSettingsPresetGroup =
 
 export interface ConnectionPresetValues {
 	endpoint: string
+	timeoutMs?: number
 }
 
 export interface BehaviorPresetValues {

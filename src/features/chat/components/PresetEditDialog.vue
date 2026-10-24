@@ -39,6 +39,7 @@ const props = defineProps<{
 	open: boolean
 	preset: AgentSettingsPreset | null
 	apiKey?: string
+	fallbackTimeoutMs?: number
 }>()
 
 const emit = defineEmits<{
@@ -126,6 +127,19 @@ watch(
 		draftValues.value = props.preset
 			? (JSON.parse(JSON.stringify(props.preset.values)) as AgentSettingsPresetValues)
 			: null
+		if (props.preset?.group === "connection") {
+			const connection = draftValues.value as ConnectionPresetValues
+			if (
+				typeof connection.timeoutMs !== "number" ||
+				!Number.isFinite(connection.timeoutMs)
+			) {
+				connection.timeoutMs =
+					typeof props.fallbackTimeoutMs === "number" &&
+					Number.isFinite(props.fallbackTimeoutMs)
+						? props.fallbackTimeoutMs
+						: 90000
+			}
+		}
 		draftApiKey.value = props.apiKey ?? ""
 		memoryDraft.value = ""
 		deleteArmed.value = false
@@ -223,6 +237,21 @@ function requestDelete(): void {
 						</div>
 						<div class="nextchat-preset-dialog__control">
 							<Input v-model="draftApiKey" type="password" autocomplete="off" />
+						</div>
+					</div>
+					<div class="nextchat-preset-dialog__row">
+						<div class="nextchat-preset-dialog__copy">
+							<p class="nextchat-preset-dialog__label">{{ t("settings.timeout") }}</p>
+							<p class="nextchat-preset-dialog__hint">{{ t("settings.timeoutHint") }}</p>
+						</div>
+						<div class="nextchat-preset-dialog__control">
+							<Input
+								:model-value="connection.timeoutMs ?? 90000"
+								type="number"
+								min="1000"
+								step="1000"
+								@update:model-value="connection.timeoutMs = Number($event)"
+							/>
 						</div>
 					</div>
 				</template>

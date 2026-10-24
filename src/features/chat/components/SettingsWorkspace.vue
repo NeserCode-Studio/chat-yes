@@ -416,8 +416,13 @@ function boundPresetSummary(group: AgentSettingsPresetGroup): string {
 
 function presetSummary(preset: AgentSettingsPreset): string {
 	switch (preset.group) {
-		case "connection":
-			return (preset.values as ConnectionPresetValues).endpoint
+		case "connection": {
+			const values = preset.values as ConnectionPresetValues
+			return typeof values.timeoutMs === "number" &&
+				Number.isFinite(values.timeoutMs)
+				? `${values.endpoint} · ${formatTimeout(values.timeoutMs)}`
+				: values.endpoint
+		}
 		case "behavior": {
 			const values = preset.values as BehaviorPresetValues
 			return `${values.preset} · T ${values.temperature.toFixed(1)}`
@@ -749,6 +754,21 @@ function formatNumber(value: number): string {
 
 function formatDuration(value: number): string {
 	return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`
+}
+
+function formatTimeout(value: number): string {
+	return value >= 1000 && value % 1000 === 0
+		? `${value / 1000}s`
+		: formatDuration(value)
+}
+
+function boundConnectionHasTimeout(): boolean {
+	const preset = store.presets.find(
+		(item) => item.id === appliedPresetIds.value.connection
+	)
+	if (!preset || preset.group !== "connection") return false
+	const timeoutMs = (preset.values as ConnectionPresetValues).timeoutMs
+	return typeof timeoutMs === "number" && Number.isFinite(timeoutMs)
 }
 </script>
 
@@ -1235,7 +1255,10 @@ function formatDuration(value: number): string {
 									</div>
 								</div>
 
-								<div class="nextchat-settings-row">
+								<div
+									v-if="!appliedPresetIds.connection || !boundConnectionHasTimeout()"
+									class="nextchat-settings-row"
+								>
 									<div class="nextchat-settings-row__copy">
 										<p class="nextchat-settings-row__title">{{ t("settings.timeout") }}</p>
 										<p class="nextchat-settings-row__subtitle">{{ t("settings.timeoutHint") }}</p>
@@ -1993,6 +2016,7 @@ function formatDuration(value: number): string {
 			:open="Boolean(editingPreset)"
 			:preset="editingPreset"
 			:api-key="editingPresetSecret"
+			:fallback-timeout-ms="agentDraft?.timeoutMs"
 			@update:open="(open: boolean) => { if (!open) editingPresetId = null }"
 			@save="saveEditedPreset"
 			@delete="deleteEditedPreset"

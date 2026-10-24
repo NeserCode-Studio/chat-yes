@@ -41,7 +41,10 @@ export function collectPresetValues(
 ): AgentSettingsPresetValues {
 	switch (group) {
 		case "connection":
-			return { endpoint: agent.endpoint } satisfies ConnectionPresetValues
+			return {
+				endpoint: agent.endpoint,
+				timeoutMs: agent.timeoutMs,
+			} satisfies ConnectionPresetValues
 		case "behavior":
 			return {
 				preset: agent.preset,
@@ -73,6 +76,12 @@ export function applyPresetValues(
 		case "connection": {
 			const connection = values as ConnectionPresetValues
 			agent.endpoint = connection.endpoint
+			if (
+				typeof connection.timeoutMs === "number" &&
+				Number.isFinite(connection.timeoutMs)
+			) {
+				agent.timeoutMs = connection.timeoutMs
+			}
 			break
 		}
 		case "behavior": {

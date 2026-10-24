@@ -17,6 +17,33 @@ describe("agent settings presets", () => {
 		expect(presetSecretKey("preset_abc")).toBe("preset:preset_abc")
 	})
 
+	it("round-trips connection endpoint and timeout", () => {
+		const agent = createAgentProfile()
+		agent.endpoint = "https://api.example.com/v1"
+		agent.timeoutMs = 45000
+
+		const values = collectPresetValues("connection", agent)
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.timeoutMs = 90000
+		applyPresetValues(agent, "connection", values)
+
+		expect(agent.endpoint).toBe("https://api.example.com/v1")
+		expect(agent.timeoutMs).toBe(45000)
+	})
+
+	it("preserves the current timeout when applying a legacy connection preset", () => {
+		const agent = createAgentProfile()
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.timeoutMs = 30000
+
+		applyPresetValues(agent, "connection", {
+			endpoint: "https://legacy.example.com/v1",
+		})
+
+		expect(agent.endpoint).toBe("https://legacy.example.com/v1")
+		expect(agent.timeoutMs).toBe(30000)
+	})
+
 	it("round-trips behavior values without sharing references", () => {
 		const agent = createAgentProfile()
 		agent.preset = "concise"
