@@ -123,4 +123,19 @@ describe("agent settings presets", () => {
 		expect(conversation.requestLimit).toBe(8)
 		expect(conversation.tokenBudget).toBe(24000)
 	})
+
+	it("preserves the parallel conversation mode in limit presets", () => {
+		const conversation = {
+			mode: "parallel",
+			roundLimit: 2,
+			requestLimit: 6,
+			tokenBudget: 18000,
+		} as Conversation
+		const values = collectConversationPresetValues(conversation)
+
+		conversation.mode = "roundtable"
+		applyConversationPresetValues(conversation, values)
+
+		expect(conversation.mode).toBe("parallel")
+	})
 })

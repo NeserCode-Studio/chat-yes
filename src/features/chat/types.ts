@@ -12,7 +12,7 @@ export type AgentPreset =
 	| "analytical"
 	| "creative"
 
-export type ConversationMode = "roundtable" | "relay"
+export type ConversationMode = "roundtable" | "relay" | "parallel"
 
 export type ConversationStatus = "idle" | "running" | "stopped" | "error"
 
@@ -98,6 +98,7 @@ export interface ChatAttachment {
 export interface Conversation {
 	id: string
 	title: string
+	context: string
 	participantIds: string[]
 	mode: ConversationMode
 	roundLimit: number

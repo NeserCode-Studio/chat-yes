@@ -4,13 +4,13 @@ import {
 	nextTick,
 	onBeforeUnmount,
 	onMounted,
-	onUpdated,
 	ref,
 	watch,
 } from "vue"
 import {
 	AlertTriangle,
 	Check,
+	ChevronDown,
 	Copy,
 	Brain,
 	ChevronsDown,
@@ -24,11 +24,20 @@ import {
 	PopoverPortal,
 	PopoverRoot,
 	PopoverTrigger,
+	TooltipPortal,
 } from "reka-ui"
 import { ScrollArea, ScrollAreaInner } from "@/components/ui/scroll-area"
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type { AgentProfile, ChatMessage } from "../types"
 import { useChatI18n } from "../i18n"
+import { latestReasoningLines, visibleReasoning } from "../reasoning"
+import { transcriptScrollSignature } from "../transcript"
 import AgentAvatar from "./AgentAvatar.vue"
+import MarkdownContent from "./MarkdownContent.vue"
 
 type ReasoningView = "collapsed" | "normal" | "expanded"
 
@@ -45,16 +54,18 @@ const emit = defineEmits<{
 const { t } = useChatI18n()
 const transcriptScroll = ref<{
 	scrollToBottom: () => void
+	scrollToElement: (element: HTMLElement | null) => void
 } | null>(null)
 const copiedId = ref("")
 const reasoningViewStates = ref<Record<string, ReasoningView>>({})
-const reasoningPreviews = new Map<string, HTMLElement>()
+const messageElements = new Map<string, HTMLElement>()
+const visibleUserMessageIds = ref<Set<string>>(new Set())
 let copyTimer: ReturnType<typeof setTimeout> | undefined
+let userMessageObserver: IntersectionObserver | undefined
 
-const lastMessageSignature = computed(() => {
-	const last = props.messages[props.messages.length - 1]
-	return `${props.messages.length}:${last?.id ?? ""}:${last?.content.length ?? 0}:${last?.reasoning?.length ?? 0}:${last?.status ?? ""}`
-})
+const lastMessageSignature = computed(() =>
+	transcriptScrollSignature(props.messages)
+)
 
 const duplicateEventIds = computed(() => {
 	const ids = new Set<string>()
@@ -74,6 +85,14 @@ const duplicateEventIds = computed(() => {
 
 	return ids
 })
+
+const mentionNames = computed(() =>
+	props.agents.map((agent) => agent.name).filter(Boolean)
+)
+
+const userMessages = computed(() =>
+	props.messages.filter((message) => message.role === "user")
+)
 
 const eventGroupsById = computed(() => {
 	const groups = new Map<string, ChatMessage[]>()
@@ -110,15 +129,25 @@ function scrollToBottom(): void {
 }
 
 onMounted(() => {
+	userMessageObserver = new IntersectionObserver(
+		updateUserMessageVisibility,
+		{
+			rootMargin: "-8px 0px -8px 0px",
+			threshold: 0.05,
+		}
+	)
+	syncUserMessageObservers()
 	scrollToBottom()
-	scrollReasoningPreviews()
-})
-
-onUpdated(() => {
-	scrollReasoningPreviews()
 })
 
 watch(lastMessageSignature, scrollToBottom, { flush: "post" })
+watch(
+	userMessages,
+	() => {
+		void nextTick(syncUserMessageObservers)
+	},
+	{ flush: "post" }
+)
 
 function agentFor(message: ChatMessage): AgentProfile | undefined {
 	return props.agents.find((agent) => agent.id === message.agentId)
@@ -131,10 +160,45 @@ function formatTime(timestamp: number): string {
 	}).format(timestamp)
 }
 
-function visibleText(value: string): string {
-	return value
-		.replace(/^(?:[ \t]*\r?\n)+/, "")
-		.replace(/(?:\r?\n[ \t]*)+$/, "")
+function userMessageText(message: ChatMessage): string {
+	const content = message.content.trim()
+	if (content) return content
+	if (message.attachments?.length) return t.value("workspace.imageMessage")
+	return t.value("workspace.emptyMessage")
+}
+
+function registerMessageElement(id: string, element: unknown): void {
+	if (element instanceof HTMLElement) messageElements.set(id, element)
+	else messageElements.delete(id)
+}
+
+function updateUserMessageVisibility(entries: IntersectionObserverEntry[]): void {
+	const next = new Set(visibleUserMessageIds.value)
+
+	for (const entry of entries) {
+		const messageId = (entry.target as HTMLElement).dataset.messageId
+		if (!messageId) continue
+		if (entry.isIntersecting) next.add(messageId)
+		else next.delete(messageId)
+	}
+
+	visibleUserMessageIds.value = next
+}
+
+function syncUserMessageObservers(): void {
+	if (!userMessageObserver) return
+	userMessageObserver.disconnect()
+
+	for (const message of userMessages.value) {
+		const element = messageElements.get(message.id)
+		if (element) userMessageObserver.observe(element)
+	}
+}
+
+function scrollToUserMessage(messageId: string): void {
+	transcriptScroll.value?.scrollToElement(
+		messageElements.get(messageId) ?? null
+	)
 }
 
 function isEventMessage(message: ChatMessage): boolean {
@@ -161,27 +225,6 @@ function setReasoningView(id: string, view: ReasoningView): void {
 		...reasoningViewStates.value,
 		[id]: view,
 	}
-	void nextTick(() => {
-		requestAnimationFrame(scrollReasoningPreviews)
-	})
-}
-
-function setReasoningPreview(id: string, element: unknown): void {
-	if (element instanceof HTMLElement) {
-		reasoningPreviews.set(id, element)
-	} else {
-		reasoningPreviews.delete(id)
-	}
-}
-
-function scrollReasoningPreviews(): void {
-	for (const [id, element] of reasoningPreviews) {
-		if (!element.isConnected) {
-			reasoningPreviews.delete(id)
-			continue
-		}
-		element.scrollTop = element.scrollHeight
-	}
 }
 
 function eventGroupFor(message: ChatMessage): ChatMessage[] {
@@ -204,29 +247,6 @@ function eventContent(message: ChatMessage): string {
 	return `${name}: ${t.value("workspace.emptyResponse")}`
 }
 
-function contentParts(message: ChatMessage): Array<{
-	text: string
-	mention: boolean
-}> {
-	const content = visibleText(message.content)
-	const names = props.agents
-		.map((agent) => agent.name)
-		.filter(Boolean)
-		.sort((left, right) => right.length - left.length)
-	if (!names.length || !content) {
-		return [{ text: content, mention: false }]
-	}
-	const escaped = names.map((name) =>
-		name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-	)
-	const pattern = new RegExp(`(@(?:${escaped.join("|")}))`, "g")
-	const mentions = new Set(names.map((name) => `@${name}`))
-	return content
-		.split(pattern)
-		.filter(Boolean)
-		.map((text) => ({ text, mention: mentions.has(text) }))
-}
-
 async function copyMessage(message: ChatMessage): Promise<void> {
 	if (!message.content || !navigator.clipboard) return
 	await navigator.clipboard.writeText(message.content)
@@ -239,11 +259,15 @@ async function copyMessage(message: ChatMessage): Promise<void> {
 
 onBeforeUnmount(() => {
 	if (copyTimer) clearTimeout(copyTimer)
+	userMessageObserver?.disconnect()
 })
 </script>
 
 <template>
-	<ScrollArea class="nextchat-transcript">
+	<div class="nextchat-transcript-shell">
+	<ScrollArea
+		:class="userMessages.length ? 'nextchat-transcript has-timeline' : 'nextchat-transcript'"
+	>
 		<ScrollAreaInner ref="transcriptScroll">
 			<div class="nextchat-transcript__inner">
 			<div v-if="!messages.length" class="nextchat-welcome">
@@ -286,8 +310,9 @@ onBeforeUnmount(() => {
 				</button>
 			</div>
 
-			<template v-else>
-				<template v-for="message in messages" :key="message.id">
+				<template v-else>
+					<div class="nextchat-conversation">
+					<template v-for="message in messages" :key="message.id">
 					<div
 						v-if="eventGroupStartIds.has(message.id)"
 						class="nextchat-event"
@@ -330,6 +355,8 @@ onBeforeUnmount(() => {
 
 					<div
 						v-else-if="!isEventMessage(message)"
+						:ref="(element) => registerMessageElement(message.id, element)"
+						:data-message-id="message.id"
 						class="nextchat-message"
 						:class="{ 'is-user': message.role === 'user' }"
 					>
@@ -386,6 +413,7 @@ onBeforeUnmount(() => {
 								>
 									<div
 										class="nextchat-reasoning__summary"
+										@dblclick="setReasoningView(message.id, 'normal')"
 									>
 										<Brain class="size-3.5" />
 										<span>{{ t("workspace.thinking") }}</span>
@@ -429,24 +457,25 @@ onBeforeUnmount(() => {
 									<p
 										v-if="reasoningView(message) === 'expanded'"
 										class="nextchat-reasoning__content"
+										@dblclick="setReasoningView(message.id, 'normal')"
 									>
-										{{ visibleText(message.reasoning) }}
+										{{ visibleReasoning(message.reasoning) }}
 									</p>
 									<p
 										v-else-if="reasoningView(message) === 'normal'"
 										class="nextchat-reasoning__preview"
-										:ref="(element) => setReasoningPreview(message.id, element)"
 									>
-										{{ visibleText(message.reasoning) }}
+										<span class="nextchat-reasoning__preview-text">
+											{{ latestReasoningLines(message.reasoning, 4) }}
+										</span>
 									</p>
 								</div>
-								<p v-if="message.content" class="nextchat-message__content">
-									<span
-										v-for="(part, index) in contentParts(message)"
-										:key="`${message.id}-${index}`"
-										:class="part.mention ? 'nextchat-mention' : ''"
-									>{{ part.text }}</span>
-								</p>
+								<MarkdownContent
+									v-if="message.content"
+									class="nextchat-message__content"
+									:content="message.content"
+									:mention-names="mentionNames"
+								/>
 								<p v-else-if="message.status === 'streaming'" class="nextchat-typing">
 									<span></span><span></span><span></span>
 								</p>
@@ -474,9 +503,43 @@ onBeforeUnmount(() => {
 							</div>
 						</div>
 					</div>
-				</template>
+					</template>
+					</div>
 				</template>
 			</div>
 		</ScrollAreaInner>
 	</ScrollArea>
+	<nav
+		v-if="userMessages.length"
+		class="nextchat-timeline"
+		:aria-label="t('workspace.timeline')"
+	>
+		<Tooltip
+			v-for="message in userMessages"
+			:key="message.id"
+			:delay-duration="120"
+		>
+			<TooltipTrigger as-child>
+				<button
+					type="button"
+					class="nextchat-timeline__tick"
+					:class="{ 'is-visible': visibleUserMessageIds.has(message.id) }"
+					:aria-label="t('workspace.userMessage')"
+					@click="scrollToUserMessage(message.id)"
+				></button>
+			</TooltipTrigger>
+			<TooltipPortal>
+				<TooltipContent
+					side="right"
+					:side-offset="10"
+					class="nextchat-timeline-tooltip"
+				>
+					<span
+						class="nextchat-timeline-tooltip__text"
+					>{{ userMessageText(message) }}</span>
+				</TooltipContent>
+			</TooltipPortal>
+		</Tooltip>
+	</nav>
+	</div>
 </template>

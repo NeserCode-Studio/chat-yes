@@ -76,7 +76,11 @@ function normalizeConversation(conversation: Conversation): Conversation {
 	const roundLimit = Math.max(1, conversation.roundLimit)
 	return {
 		...conversation,
-		mode: conversation.mode === "relay" ? "relay" : "roundtable",
+		context: conversation.context ?? "",
+		mode:
+			conversation.mode === "relay" || conversation.mode === "parallel"
+				? conversation.mode
+				: "roundtable",
 		roundLimit,
 		requestLimit: Math.max(
 			conversation.requestLimit ?? 0,
@@ -101,6 +105,7 @@ function createConversation(
 	return {
 		id: createId("conversation"),
 		title: `Session ${String(index + 1).padStart(2, "0")}`,
+		context: "",
 		participantIds,
 		mode: "roundtable",
 		roundLimit: 2,
@@ -321,6 +326,7 @@ export const useChatStore = defineStore("chat-workspace", () => {
 			Pick<
 				Conversation,
 				| "title"
+				| "context"
 				| "mode"
 				| "roundLimit"
 				| "requestLimit"
@@ -336,8 +342,14 @@ export const useChatStore = defineStore("chat-workspace", () => {
 			const title = patch.title.trim()
 			if (title) conversation.title = title
 		}
+		if (patch.context !== undefined) {
+			conversation.context = patch.context
+		}
 		if (patch.mode !== undefined) {
-			conversation.mode = patch.mode === "relay" ? "relay" : "roundtable"
+			conversation.mode =
+				patch.mode === "relay" || patch.mode === "parallel"
+					? patch.mode
+					: "roundtable"
 		}
 		if (patch.roundLimit !== undefined) {
 			conversation.roundLimit = Math.min(10, Math.max(1, patch.roundLimit))

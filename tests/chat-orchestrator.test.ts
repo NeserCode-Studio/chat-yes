@@ -125,6 +125,185 @@ describe("conversation orchestration", () => {
 		).toBe("Reasoning")
 	})
 
+	it("sends conversation context to a sequential request", async () => {
+		completeChatMock.mockResolvedValue({
+			content: "Context received",
+			usage: {
+				promptTokens: 10,
+				completionTokens: 3,
+				totalTokens: 13,
+			},
+			latencyMs: 120,
+		})
+		const { store, conversation } = prepareConversation()
+		conversation.context = "The shared release is scheduled for Friday."
+
+		await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		const systemContent = completeChatMock.mock.calls[0][0].messages[0].content
+		expect(systemContent).toContain(
+			"Conversation context:\nThe shared release is scheduled for Friday."
+		)
+	})
+
+	it("starts all parallel participants from the same conversation snapshot", async () => {
+		const { store, agent, conversation } = prepareConversation()
+		const second = store.addAgent()
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.model = "first-model"
+		agent.maxTokens = 100
+		second.endpoint = "http://localhost:1234/v1"
+		second.model = "second-model"
+		second.maxTokens = 100
+		conversation.participantIds.push(second.id)
+		conversation.mode = "parallel"
+		conversation.roundLimit = 1
+		conversation.requestLimit = 2
+		conversation.context = "Every participant must preserve the API contract."
+
+		const resolvers: Array<() => void> = []
+		completeChatMock.mockImplementation(
+			(options) =>
+				new Promise<CompletionResult>((resolve) => {
+					resolvers.push(() =>
+						resolve({
+							content: `Response from ${options.model}`,
+							usage: {
+								promptTokens: 8,
+								completionTokens: 3,
+								totalTokens: 11,
+							},
+							latencyMs: 70,
+						})
+					)
+				})
+		)
+
+		const runPromise = runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(completeChatMock).toHaveBeenCalledTimes(2)
+		for (const call of completeChatMock.mock.calls) {
+			const context = call[0].messages
+				.map((message) =>
+					typeof message.content === "string" ? message.content : ""
+				)
+				.join("\n")
+			expect(context).not.toContain("Response from")
+			expect(context).toContain(
+				"Conversation context:\nEvery participant must preserve the API contract."
+			)
+		}
+
+		for (const resolve of resolvers) resolve()
+		const result = await runPromise
+
+		expect(result).toEqual({ status: "completed", requests: 2 })
+		expect(
+			store.messagesByConversation[conversation.id]
+				.filter((message) => message.role === "assistant")
+				.map((message) => message.content)
+		).toEqual(["Response from first-model", "Response from second-model"])
+	})
+
+	it("keeps successful parallel replies when another participant fails", async () => {
+		const { store, agent, conversation } = prepareConversation()
+		const second = store.addAgent()
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.model = "healthy-model"
+		agent.maxTokens = 100
+		second.endpoint = "http://localhost:1234/v1"
+		second.model = "failing-model"
+		second.maxTokens = 100
+		conversation.participantIds.push(second.id)
+		conversation.mode = "parallel"
+		conversation.roundLimit = 1
+		conversation.requestLimit = 2
+		completeChatMock.mockImplementation(async (options) => {
+			if (options.model === "failing-model") {
+				throw new Error("Provider unavailable")
+			}
+			return {
+				content: "Healthy response",
+				usage: {
+					promptTokens: 8,
+					completionTokens: 3,
+					totalTokens: 11,
+				},
+				latencyMs: 70,
+			}
+		})
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+		const assistants = store.messagesByConversation[conversation.id].filter(
+			(message) => message.role === "assistant"
+		)
+
+		expect(result.status).toBe("error")
+		expect(result.requests).toBe(1)
+		expect(conversation.status).toBe("error")
+		expect(assistants.find((message) => message.agentId === agent.id)?.status).toBe(
+			"complete"
+		)
+		expect(
+			assistants.find((message) => message.agentId === second.id)?.status
+		).toBe("error")
+	})
+
+	it("runs another full parallel round only after an explicit continuation", async () => {
+		const { store, agent, conversation } = prepareConversation()
+		const second = store.addAgent()
+		agent.endpoint = "http://localhost:1234/v1"
+		agent.model = "first-model"
+		agent.maxTokens = 100
+		second.endpoint = "http://localhost:1234/v1"
+		second.model = "second-model"
+		second.maxTokens = 100
+		conversation.participantIds.push(second.id)
+		conversation.mode = "parallel"
+		conversation.roundLimit = 2
+		conversation.requestLimit = 4
+
+		let callCount = 0
+		completeChatMock.mockImplementation(async () => {
+			callCount += 1
+			return {
+				content:
+					callCount <= 2
+						? "First parallel round.<conversation_continue>"
+						: "Second parallel round.",
+				usage: {
+					promptTokens: 8,
+					completionTokens: 3,
+					totalTokens: 11,
+				},
+				latencyMs: 70,
+			}
+		})
+
+		const result = await runConversation(store, conversation.id, {
+			signal: new AbortController().signal,
+		})
+
+		expect(result).toEqual({ status: "completed", requests: 4 })
+		expect(completeChatMock).toHaveBeenCalledTimes(4)
+		expect(
+			store.messagesByConversation[conversation.id]
+				.filter((message) => message.role === "assistant")
+				.map((message) => message.content)
+		).toEqual([
+			"First parallel round.",
+			"First parallel round.",
+			"Second parallel round.",
+			"Second parallel round.",
+		])
+	})
+
 	it("stops after one round when the model does not request continuation", async () => {
 		completeChatMock.mockResolvedValue({
 			content: "Hello!",

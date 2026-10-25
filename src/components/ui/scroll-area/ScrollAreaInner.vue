@@ -10,7 +10,18 @@ function scrollToBottom(): void {
   element.scrollTop = element.scrollHeight
 }
 
-defineExpose({ scrollToBottom })
+function scrollToElement(target: HTMLElement | null): void {
+  const element = unref(viewport.value?.viewportElement)
+  if (!element || !target) return
+  const top =
+    target.getBoundingClientRect().top -
+    element.getBoundingClientRect().top +
+    element.scrollTop -
+    12
+  element.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
+}
+
+defineExpose({ scrollToBottom, scrollToElement })
 </script>
 
 <template>

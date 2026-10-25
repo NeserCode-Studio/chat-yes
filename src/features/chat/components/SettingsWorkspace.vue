@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import {
 	Activity,
 	BadgeCheck,
+	BookOpenText,
 	Bot,
 	Brain,
 	CheckCircle2,
@@ -449,7 +450,7 @@ function presetSummary(preset: AgentSettingsPreset): string {
 		}
 		case "limits": {
 			const values = preset.values as LimitsPresetValues
-			return `${values.mode} · ${values.roundLimit} / ${values.requestLimit} / ${values.tokenBudget}`
+			return `${conversationModeLabel(values.mode)} · ${values.roundLimit} / ${values.requestLimit} / ${values.tokenBudget}`
 		}
 	}
 }
@@ -761,10 +762,23 @@ function isParticipant(agentId: string): boolean {
 	return activeConversation.value?.participantIds.includes(agentId) ?? false
 }
 
+function conversationModeLabel(mode: ConversationMode): string {
+	if (mode === "relay") return t.value("inspector.modeRelay")
+	if (mode === "parallel") return t.value("inspector.modeParallel")
+	return t.value("inspector.modeRoundtable")
+}
+
 function updateConversationTitle(value: string | number): void {
 	if (!activeConversation.value) return
 	store.updateConversationSettings(activeConversation.value.id, {
 		title: String(value),
+	})
+}
+
+function updateConversationContext(value: string): void {
+	if (!activeConversation.value) return
+	store.updateConversationSettings(activeConversation.value.id, {
+		context: value,
 	})
 }
 
@@ -935,7 +949,7 @@ function boundConnectionHasTimeout(): boolean {
 						<span>{{ activeConversation.title }}</span>
 						<small>
 							{{ activeConversation.participantIds.length }} ·
-							{{ activeConversation.mode }}
+							{{ conversationModeLabel(activeConversation.mode) }}
 						</small>
 					</div>
 				</div>
@@ -1742,6 +1756,27 @@ function boundConnectionHasTimeout(): boolean {
 
 							<section class="nextchat-settings-list">
 								<header class="nextchat-settings-list__header">
+									<BookOpenText class="size-4" />
+									<div>
+										<p class="nextchat-settings-list__title">{{ t("settings.conversationContext") }}</p>
+										<p class="nextchat-settings-list__copy">{{ t("settings.conversationContextHint") }}</p>
+									</div>
+								</header>
+
+								<div class="nextchat-settings-row is-stack">
+									<Textarea
+										:model-value="activeConversation.context"
+										rows="5"
+										class="min-h-32"
+										:aria-label="t('settings.conversationContext')"
+										:placeholder="t('settings.conversationContextPlaceholder')"
+										@update:model-value="updateConversationContext($event)"
+									/>
+								</div>
+							</section>
+
+							<section class="nextchat-settings-list">
+								<header class="nextchat-settings-list__header">
 									<UsersRound class="size-4" />
 									<div>
 										<p class="nextchat-settings-list__title">{{ t("settings.participants") }}</p>
@@ -1844,6 +1879,9 @@ function boundConnectionHasTimeout(): boolean {
 												</SelectItem>
 												<SelectItem value="relay">
 													{{ t("inspector.modeRelay") }}
+												</SelectItem>
+												<SelectItem value="parallel">
+													{{ t("inspector.modeParallel") }}
 												</SelectItem>
 											</SelectContent>
 										</Select>

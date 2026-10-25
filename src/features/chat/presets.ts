@@ -142,7 +142,10 @@ export function applyConversationPresetValues(
 	values: AgentSettingsPresetValues
 ): void {
 	const limits = values as LimitsPresetValues
-	conversation.mode = limits.mode === "relay" ? "relay" : "roundtable"
+	conversation.mode =
+		limits.mode === "relay" || limits.mode === "parallel"
+			? limits.mode
+			: "roundtable"
 	conversation.roundLimit = limits.roundLimit
 	conversation.requestLimit = limits.requestLimit
 	conversation.tokenBudget = limits.tokenBudget

@@ -417,6 +417,7 @@ function requestDelete(): void {
 								<SelectContent>
 									<SelectItem value="roundtable">{{ t("inspector.modeRoundtable") }}</SelectItem>
 									<SelectItem value="relay">{{ t("inspector.modeRelay") }}</SelectItem>
+									<SelectItem value="parallel">{{ t("inspector.modeParallel") }}</SelectItem>
 								</SelectContent>
 							</Select>
 						</div>

@@ -23,6 +23,7 @@ function prepareExport() {
 	const conversation: Conversation = {
 		id: "conversation-1",
 		title: "Reasoning diagnosis",
+		context: "Use the compatibility table in the migration notes.",
 		participantIds: [agent.id],
 		mode: "relay",
 		roundLimit: 2,
@@ -101,6 +102,9 @@ describe("conversation export", () => {
 		expect(data.exportedAt).toBe(exportedAt.toISOString())
 		expect(data.security.apiKeysIncluded).toBe(false)
 		expect(data.conversation.mode).toBe("relay")
+		expect(data.conversation.context).toBe(
+			"Use the compatibility table in the migration notes."
+		)
 		expect(data.participants[0].systemPrompt).toBe(
 			"Investigate the question carefully."
 		)
@@ -118,6 +122,9 @@ describe("conversation export", () => {
 		)
 		expect(data.requestContexts[0].messages[0].content).toContain(
 			"Investigate the question carefully."
+		)
+		expect(data.requestContexts[0].messages[0].content).toContain(
+			"Conversation context:\nUse the compatibility table in the migration notes."
 		)
 		expect(serialized).not.toContain("must-not-be-exported")
 		expect(serialized).not.toContain('"apiKey"')

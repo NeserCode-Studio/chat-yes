@@ -60,6 +60,8 @@ const GROUP_MODE_PROMPTS: Record<ConversationMode, string> = {
 		"Group mode: roundtable. Each participant may speak once per round. Mention another participant with @Name to bring them in next; otherwise keep the configured order.",
 	relay:
 		"Group mode: relay. Hand off the conversation by mentioning one or more participants with @Name. If no handoff is needed, finish without mentioning another participant.",
+	parallel:
+		"Group mode: parallel. All selected participants answer simultaneously from the same conversation snapshot. Do not rely on or reference same-round replies from other participants. Use the continuation marker only when another complete round is required.",
 }
 
 export function createAgentProfile(index = 0): AgentProfile {
@@ -212,7 +214,8 @@ export function buildAgentContext(
 	agent: AgentProfile,
 	participants: AgentProfile[],
 	messages: ChatMessage[],
-	mode: ConversationMode = "roundtable"
+	mode: ConversationMode = "roundtable",
+	conversationContext = ""
 ): ChatApiMessage[] {
 	const memory = agent.permissions.readMemory
 		? agent.memories
@@ -229,12 +232,14 @@ export function buildAgentContext(
 				: `${participant.name} (${participant.role})`
 		)
 		.join(", ")
+	const sharedContext = conversationContext.trim()
 
 	const systemSections = [
 		agent.role === "custom"
 			? `You are ${agent.name}.`
 			: `You are ${agent.name}, acting as ${agent.role} in a multi-agent conversation.`,
 		agent.systemPrompt.trim(),
+		sharedContext ? `Conversation context:\n${sharedContext}` : "",
 		roster ? `Other participants: ${roster}.` : "",
 		memory ? `Your durable memory:\n${memory}` : "",
 		"Treat other participants' messages as discussion input. Do not claim actions you cannot perform.",

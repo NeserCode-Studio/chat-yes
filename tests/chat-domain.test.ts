@@ -123,9 +123,37 @@ describe("agent context construction", () => {
 			[],
 			"roundtable"
 		)
+		const parallelContext = buildAgentContext(agent, [agent], [], "parallel")
 
 		expect(relayContext[0].content).toContain("Group mode: relay")
 		expect(roundtableContext[0].content).toContain("Group mode: roundtable")
+		expect(parallelContext[0].content).toContain("Group mode: parallel")
+		expect(parallelContext[0].content).toContain(
+			"same conversation snapshot"
+		)
+	})
+
+	it("injects non-empty conversation context into the system prompt", () => {
+		const agent = createAgentProfile()
+		const context = buildAgentContext(
+			agent,
+			[agent],
+			[],
+			"roundtable",
+			"  The project targets a desktop client.  "
+		)
+		const emptyContext = buildAgentContext(
+			agent,
+			[agent],
+			[],
+			"roundtable",
+			"   "
+		)
+
+		expect(context[0].content).toContain(
+			"Conversation context:\nThe project targets a desktop client."
+		)
+		expect(emptyContext[0].content).not.toContain("Conversation context:")
 	})
 
 	it("keeps the newest messages inside the context budget", () => {

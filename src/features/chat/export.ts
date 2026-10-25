@@ -128,6 +128,7 @@ function copyConversation(conversation: Conversation): Conversation {
 	return {
 		id: conversation.id,
 		title: conversation.title,
+		context: conversation.context,
 		participantIds: [...conversation.participantIds],
 		mode: conversation.mode,
 		roundLimit: conversation.roundLimit,
@@ -172,7 +173,8 @@ export function createConversationExport(input: {
 							(candidate): candidate is AgentProfile => Boolean(candidate)
 						),
 						input.messages,
-						input.conversation.mode
+						input.conversation.mode,
+						input.conversation.context
 					)
 				: [],
 		}

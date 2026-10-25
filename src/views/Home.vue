@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useLocalStorage, useMediaQuery } from "@vueuse/core"
 import {
+	BookOpenText,
 	Bot,
 	MessageSquarePlus,
 	PanelRight,
@@ -44,6 +45,9 @@ const isNarrow = useMediaQuery("(max-width: 820px)")
 const conversation = computed(() => store.activeConversation)
 const participantCount = computed(
 	() => conversation.value?.participantIds.length ?? 0
+)
+const hasConversationContext = computed(
+	() => Boolean(conversation.value?.context.trim())
 )
 const canStartConversation = computed(() => store.agents.length > 0)
 
@@ -217,6 +221,16 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 						<button
 							type="button"
 							class="nextchat-icon-button"
+							:class="{ 'has-context': hasConversationContext }"
+							:aria-label="hasConversationContext ? t('workspace.conversationContextActive') : t('workspace.conversationContext')"
+							:title="hasConversationContext ? t('workspace.conversationContextActive') : t('workspace.conversationContext')"
+							@click="dialogs.openSettings('conversation')"
+						>
+							<BookOpenText class="size-4" />
+						</button>
+						<button
+							type="button"
+							class="nextchat-icon-button"
 							:class="{ 'is-active': inspectorOpen }"
 							:title="t('workspace.inspector')"
 							@click="inspectorOpen = !inspectorOpen"
@@ -287,7 +301,7 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 			</template>
 		</section>
 
-		<Transition name="nextchat-drawer">
+		<Transition name="nextchat-drawer" :duration="260">
 			<div v-if="conversation && inspectorOpen" class="nextchat-inspector-layer">
 				<button
 					type="button"

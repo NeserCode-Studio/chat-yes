@@ -45,11 +45,15 @@ const participants = computed(() =>
 		.map((id) => store.getAgent(id))
 		.filter((agent) => Boolean(agent))
 )
-const modeLabel = computed(() =>
-	props.conversation.mode === "relay"
-		? t.value("inspector.modeRelay")
-		: t.value("inspector.modeRoundtable")
-)
+const modeLabel = computed(() => {
+	if (props.conversation.mode === "relay") {
+		return t.value("inspector.modeRelay")
+	}
+	if (props.conversation.mode === "parallel") {
+		return t.value("inspector.modeParallel")
+	}
+	return t.value("inspector.modeRoundtable")
+})
 const budgetPercent = computed(() => {
 	const budget = Math.max(1, props.conversation.tokenBudget)
 	return Math.min(

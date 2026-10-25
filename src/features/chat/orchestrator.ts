@@ -173,6 +173,286 @@ async function raceAbort<T>(
 	return race
 }
 
+interface ParallelTurnOutcome {
+	agent: AgentProfile
+	status: "complete" | "empty" | "error" | "stopped"
+	requests: number
+	continueRequested: boolean
+	error?: string
+}
+
+async function runParallelTurn(
+	store: ChatStore,
+	conversationId: string,
+	agent: AgentProfile,
+	context: ReturnType<typeof buildAgentContext>,
+	signal: AbortSignal
+): Promise<ParallelTurnOutcome> {
+	const message = store.addMessage(conversationId, {
+		id: createId("message"),
+		role: "assistant",
+		agentId: agent.id,
+		content: "",
+		status: "streaming",
+		createdAt: Date.now(),
+	})
+	let lastPersist = 0
+
+	try {
+		const result = await raceAbort(
+			completeChat({
+				endpoint: agent.endpoint,
+				apiKey: store.getAgentSecret(agent.id),
+				model: agent.model,
+				messages: context,
+				temperature: agent.temperature,
+				topP: agent.topP,
+				presencePenalty: agent.presencePenalty,
+				frequencyPenalty: agent.frequencyPenalty,
+				maxTokens: agent.maxTokens,
+				timeoutMs: agent.timeoutMs,
+				retryCount: agent.retryCount,
+				streaming: agent.streaming,
+				signal,
+				onDelta: (delta) => {
+					if (signal.aborted) return
+					const current =
+						store
+							.getMessages(conversationId)
+							.find((item) => item.id === message.id)?.content ?? ""
+					store.patchMessage(conversationId, message.id, {
+						content: streamingDisplayContent(current + delta),
+					})
+					const now = Date.now()
+					if (now - lastPersist > 600) {
+						store.persistMessages(conversationId)
+						lastPersist = now
+					}
+				},
+				onReasoningDelta: (delta) => {
+					if (signal.aborted) return
+					const current =
+						store
+							.getMessages(conversationId)
+							.find((item) => item.id === message.id)?.reasoning ?? ""
+					store.patchMessage(conversationId, message.id, {
+						reasoning: current + delta,
+					})
+					const now = Date.now()
+					if (now - lastPersist > 600) {
+						store.persistMessages(conversationId)
+						lastPersist = now
+					}
+				},
+			}),
+			signal
+		)
+
+		if (!result) {
+			store.setMessageStatus(conversationId, message.id, "stopped")
+			return {
+				agent,
+				status: "stopped",
+				requests: 0,
+				continueRequested: false,
+			}
+		}
+
+		const hasUsage =
+			result.usage.totalTokens > 0 ||
+			result.usage.promptTokens > 0 ||
+			result.usage.completionTokens > 0
+		const usage = hasUsage
+			? usageFromCompletion(result.usage, result.latencyMs)
+			: fallbackUsage(
+					context,
+					result.content + (result.reasoning ?? ""),
+					result.latencyMs
+				)
+		const continueRequested = result.content
+			.toLowerCase()
+			.includes(CONVERSATION_CONTINUE_TAG)
+		const visibleContent = stripTurnControlSignal(result.content)
+
+		store.addConversationUsage(conversationId, usage)
+		if (!visibleContent) {
+			store.removeMessage(conversationId, message.id)
+			return {
+				agent,
+				status: "empty",
+				requests: 1,
+				continueRequested,
+			}
+		}
+
+		store.patchMessage(conversationId, message.id, {
+			content: visibleContent,
+			reasoning: result.reasoning ?? "",
+			status: "complete",
+			usage,
+		})
+		store.persistMessages(conversationId)
+		return {
+			agent,
+			status: "complete",
+			requests: 1,
+			continueRequested,
+		}
+	} catch (error) {
+		if (signal.aborted) {
+			store.setMessageStatus(conversationId, message.id, "stopped")
+			return {
+				agent,
+				status: "stopped",
+				requests: 0,
+				continueRequested: false,
+			}
+		}
+
+		const detail =
+			error instanceof ChatApiError
+				? `${error.status ? `HTTP ${error.status}: ` : ""}${error.message}`
+				: error instanceof Error
+					? error.message
+					: "Unknown chat error"
+		store.patchMessage(conversationId, message.id, {
+			status: "error",
+			error: detail,
+		})
+		store.persistMessages(conversationId)
+		return {
+			agent,
+			status: "error",
+			requests: 0,
+			continueRequested: false,
+			error: detail,
+		}
+	}
+}
+
+async function runParallelConversation(
+	store: ChatStore,
+	conversation: Conversation,
+	participants: AgentProfile[],
+	options: RunOptions
+): Promise<RunResult> {
+	let requests = 0
+
+	for (let round = 1; round <= conversation.roundLimit; round += 1) {
+		if (options.signal.aborted) {
+			store.setConversationStatus(conversation.id, "stopped")
+			return { status: "stopped", requests }
+		}
+
+		const eligible: AgentProfile[] = []
+		const blocked: string[] = []
+		for (const agent of participants) {
+			const reason = canRunAgent(
+				agent,
+				conversation,
+				round === 1,
+				requests + eligible.length
+			)
+			if (reason) blocked.push(reason)
+			else eligible.push(agent)
+		}
+
+		if (!eligible.length) {
+			if (round === 1) {
+				const detail = blocked[0] ?? "No eligible participants"
+				addEvent(store, conversation.id, detail)
+				store.setConversationStatus(conversation.id, "error")
+				return { status: "error", requests, message: detail }
+			}
+			break
+		}
+		if (blocked.length && round === 1) {
+			addEvent(
+				store,
+				conversation.id,
+				`Skipped participants: ${blocked.join("; ")}`
+			)
+		}
+
+		const snapshot = store.getMessages(conversation.id)
+		const contexts = eligible.map((agent) => ({
+			agent,
+			context: buildAgentContext(
+				agent,
+				participants,
+				snapshot,
+				"parallel",
+				conversation.context
+			),
+		}))
+		const estimatedTokens = contexts.reduce(
+			(total, item) =>
+				total +
+				item.context.reduce(
+					(sum, message) =>
+						sum + estimateApiContentTokens(message.content) + 4,
+					0
+				) +
+				item.agent.maxTokens,
+			0
+		)
+		if (
+			conversation.usage.totalTokens + estimatedTokens >
+			conversation.tokenBudget
+		) {
+			const detail = "Conversation token budget would be exceeded"
+			addEvent(store, conversation.id, detail)
+			store.setConversationStatus(conversation.id, "stopped")
+			return { status: "stopped", requests, message: detail }
+		}
+
+		options.onProgress?.(
+			`${eligible.length} agents are responding in parallel`
+		)
+		const outcomes = await Promise.all(
+			contexts.map(({ agent, context }) =>
+				runParallelTurn(
+					store,
+					conversation.id,
+					agent,
+					context,
+					options.signal
+				)
+			)
+		)
+		requests += outcomes.reduce(
+			(total, outcome) => total + outcome.requests,
+			0
+		)
+
+		if (
+			options.signal.aborted ||
+			outcomes.some((outcome) => outcome.status === "stopped")
+		) {
+			store.setConversationStatus(conversation.id, "stopped")
+			return { status: "stopped", requests }
+		}
+
+		const failures = outcomes.filter(
+			(outcome) => outcome.status === "error"
+		)
+		if (failures.length) {
+			const detail =
+				failures
+					.map((outcome) => `${outcome.agent.name}: ${outcome.error}`)
+					.join("; ") || "Parallel request failed"
+			addEvent(store, conversation.id, detail)
+			store.setConversationStatus(conversation.id, "error")
+			return { status: "error", requests, message: detail }
+		}
+
+		if (!outcomes.some((outcome) => outcome.continueRequested)) break
+	}
+
+	store.setConversationStatus(conversation.id, "idle")
+	return { status: "completed", requests }
+}
+
 export async function runConversation(
 	store: ChatStore,
 	conversationId: string,
@@ -223,6 +503,15 @@ export async function runConversation(
 	store.setConversationStatus(conversationId, "running")
 
 	try {
+		if (conversation.mode === "parallel") {
+			return await runParallelConversation(
+				store,
+				conversation,
+				participants,
+				options
+			)
+		}
+
 		for (let round = 1; round <= conversation.roundLimit; round += 1) {
 			let continueRequested = false
 			const completedTurnIds = new Set<string>()
@@ -265,7 +554,8 @@ export async function runConversation(
 					agent,
 					participants,
 					store.getMessages(conversationId),
-					conversation.mode
+					conversation.mode,
+					conversation.context
 				)
 				const estimatedInputTokens = context.reduce(
 					(total, item) =>

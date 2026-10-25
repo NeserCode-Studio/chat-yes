@@ -3,14 +3,22 @@ import { computed, nextTick, ref, watch } from "vue"
 import {
 	ArrowUp,
 	AtSign,
+	Eye,
 	ImagePlus,
 	Loader2,
-	Smile,
+	Pencil,
 	Square,
 	SquareSlash,
 	X,
 } from "@lucide/vue"
+import { TooltipPortal } from "reka-ui"
 import { ScrollArea, ScrollAreaInner } from "@/components/ui/scroll-area"
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useAppearanceStore } from "@/store/appearance"
 import { parseAgentMentionIds } from "../domain"
@@ -21,8 +29,11 @@ import type {
 	ChatAttachment,
 	ComposerSendPayload,
 } from "../types"
+import ComposerEmojiPicker from "./ComposerEmojiPicker.vue"
+import MarkdownContent from "./MarkdownContent.vue"
 
 type CommandId = "new" | "stop" | "settings" | "clear"
+type EditorMode = "write" | "preview"
 
 const props = defineProps<{
 	disabled: boolean
@@ -52,6 +63,7 @@ const notice = ref("")
 const menuIndex = ref(0)
 const caret = ref(0)
 const editorHeight = ref(76)
+const editorMode = ref<EditorMode>("write")
 
 const MAX_IMAGES = 2
 const MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -59,13 +71,6 @@ const MAX_DATA_URL_LENGTH = 520_000
 const MAX_IMAGE_EDGE = 1200
 const MIN_EDITOR_HEIGHT = 76
 const MAX_EDITOR_HEIGHT = 180
-
-const emojis = [
-	"😀", "😄", "😁", "😂", "🙂", "😉",
-	"😍", "🤔", "😅", "😎", "😭", "😤",
-	"👍", "👎", "👏", "🙏", "💪", "👌",
-	"❤️", "🔥", "✨", "🎉", "✅", "🚀",
-]
 
 const commands = computed<Array<{ id: CommandId; label: string; hint: string }>>(
 	() => [
@@ -122,11 +127,19 @@ const filteredAgents = computed(() => {
 	)
 })
 
+const mentionNames = computed(() =>
+	props.agents.map((agent) => agent.name).filter(Boolean)
+)
+
 const showCommandMenu = computed(
-	() => slashQuery.value !== null && filteredCommands.value.length > 0
+	() =>
+		editorMode.value === "write" &&
+		slashQuery.value !== null &&
+		filteredCommands.value.length > 0
 )
 const showMentionMenu = computed(
 	() =>
+		editorMode.value === "write" &&
 		!showCommandMenu.value &&
 		mentionQuery.value !== null &&
 		filteredAgents.value.length > 0
@@ -147,6 +160,16 @@ const canSend = computed(
 watch([slashQuery, mentionQuery], () => {
 	menuIndex.value = 0
 	emojiOpen.value = false
+})
+
+watch(editorMode, (mode) => {
+	emojiOpen.value = false
+	if (mode === "write") {
+		void nextTick(() => {
+			resize()
+			focusAt(caret.value)
+		})
+	}
 })
 
 function resize(): void {
@@ -173,9 +196,11 @@ function focusAt(position: number): void {
 }
 
 function insertText(text: string): void {
+	editorMode.value = "write"
 	const el = textarea.value?.root
-	const start = el?.selectionStart ?? content.value.length
-	const end = el?.selectionEnd ?? content.value.length
+	const fallback = Math.min(caret.value, content.value.length)
+	const start = el?.selectionStart ?? fallback
+	const end = el?.selectionEnd ?? fallback
 	content.value = `${content.value.slice(0, start)}${text}${content.value.slice(end)}`
 	const position = start + text.length
 	caret.value = position
@@ -204,6 +229,7 @@ function selectMention(agent: AgentProfile): void {
 }
 
 function runCommand(command: CommandId): void {
+	editorMode.value = "write"
 	content.value = ""
 	caret.value = 0
 	if (command === "clear") {
@@ -241,6 +267,7 @@ function send(): void {
 	images.value = []
 	notice.value = ""
 	emojiOpen.value = false
+	editorMode.value = "write"
 	caret.value = 0
 	void nextTick(resize)
 }
@@ -423,46 +450,84 @@ function removeImage(id: string): void {
 	<div class="nextchat-composer">
 		<div class="nextchat-composer__inner">
 			<div class="nextchat-composer__toolbar">
-				<button
-					type="button"
-					class="nextchat-composer__tool"
-					:title="t('composer.commands')"
-					@click="insertText('/')"
-				>
-					<SquareSlash class="size-3.5" />
-					<span>{{ t("composer.commands") }}</span>
-				</button>
-				<button
-					type="button"
-					class="nextchat-composer__tool"
-					:title="t('composer.mention')"
-					@click="insertText('@')"
-				>
-					<AtSign class="size-3.5" />
-					<span>{{ t("composer.mention") }}</span>
-				</button>
-				<button
-					type="button"
-					class="nextchat-composer__tool"
-					:title="t('composer.attachImage')"
-					:disabled="processingImages || images.length >= MAX_IMAGES"
-					@click="fileInput?.click()"
-				>
-					<Loader2 v-if="processingImages" class="size-3.5 animate-spin" />
-					<ImagePlus v-else class="size-3.5" />
-					<span>{{ t("composer.attachImage") }}</span>
-				</button>
-				<button
-					type="button"
-					class="nextchat-composer__tool"
-					:title="t('composer.emoji')"
-					:aria-expanded="emojiOpen"
-					aria-controls="composer-emoji-panel"
-					@click="emojiOpen = !emojiOpen"
-				>
-					<Smile class="size-3.5" />
-					<span>{{ t("composer.emoji") }}</span>
-				</button>
+				<Tooltip>
+					<TooltipTrigger as-child>
+						<button
+							type="button"
+							class="nextchat-composer__tool"
+							:aria-label="t('composer.commands')"
+							@click="insertText('/')"
+						>
+							<SquareSlash class="size-4" />
+						</button>
+					</TooltipTrigger>
+					<TooltipPortal>
+						<TooltipContent side="top" :side-offset="6">
+							{{ t("composer.commands") }}
+						</TooltipContent>
+					</TooltipPortal>
+				</Tooltip>
+				<Tooltip>
+					<TooltipTrigger as-child>
+						<button
+							type="button"
+							class="nextchat-composer__tool"
+							:aria-label="t('composer.mention')"
+							@click="insertText('@')"
+						>
+							<AtSign class="size-4" />
+						</button>
+					</TooltipTrigger>
+					<TooltipPortal>
+						<TooltipContent side="top" :side-offset="6">
+							{{ t("composer.mention") }}
+						</TooltipContent>
+					</TooltipPortal>
+				</Tooltip>
+				<Tooltip>
+					<TooltipTrigger as-child>
+						<button
+							type="button"
+							class="nextchat-composer__tool"
+							:aria-label="t('composer.attachImage')"
+							:disabled="processingImages || images.length >= MAX_IMAGES"
+							@click="fileInput?.click()"
+						>
+							<Loader2 v-if="processingImages" class="size-4 animate-spin" />
+							<ImagePlus v-else class="size-4" />
+						</button>
+					</TooltipTrigger>
+					<TooltipPortal>
+						<TooltipContent side="top" :side-offset="6">
+							{{ t("composer.attachImage") }}
+						</TooltipContent>
+					</TooltipPortal>
+				</Tooltip>
+				<ComposerEmojiPicker
+					v-model:open="emojiOpen"
+					:disabled="disabled || running || showCommandMenu || showMentionMenu"
+					@select="insertText"
+				/>
+				<Tabs v-model="editorMode" class="nextchat-composer__mode">
+					<TabsList class="nextchat-composer__mode-list">
+						<TabsTrigger
+							value="write"
+							class="nextchat-composer__mode-trigger"
+							:title="t('composer.markdownWrite')"
+						>
+							<Pencil class="size-3" />
+							<span>{{ t("composer.markdownWrite") }}</span>
+						</TabsTrigger>
+						<TabsTrigger
+							value="preview"
+							class="nextchat-composer__mode-trigger"
+							:title="t('composer.markdownPreview')"
+						>
+							<Eye class="size-3" />
+							<span>{{ t("composer.markdownPreview") }}</span>
+						</TabsTrigger>
+					</TabsList>
+				</Tabs>
 			</div>
 
 		<div
@@ -527,25 +592,8 @@ function removeImage(id: string): void {
 				</button>
 			</div>
 
-			<div
-				v-if="emojiOpen"
-				id="composer-emoji-panel"
-				class="nextchat-composer__emoji"
-				role="dialog"
-				:aria-label="t('composer.emoji')"
-			>
-				<button
-					v-for="emoji in emojis"
-					:key="emoji"
-					type="button"
-					@mousedown.prevent
-					@click="insertText(emoji)"
-				>
-					{{ emoji }}
-				</button>
-			</div>
-
 			<ScrollArea
+				v-if="editorMode === 'write'"
 				class="nextchat-composer__editor-scroll"
 				:style="{ height: `${editorHeight}px` }"
 			>
@@ -564,6 +612,23 @@ function removeImage(id: string): void {
 						@keydown="keydown"
 						@paste="paste"
 					/>
+				</ScrollAreaInner>
+			</ScrollArea>
+			<ScrollArea
+				v-else
+				class="nextchat-composer__preview-scroll"
+				:style="{ height: `${editorHeight}px` }"
+			>
+				<ScrollAreaInner>
+					<MarkdownContent
+						v-if="content.trim()"
+						class="nextchat-composer__preview"
+						:content="content"
+						:mention-names="mentionNames"
+					/>
+					<p v-else class="nextchat-composer__preview-empty">
+						{{ t("composer.markdownEmpty") }}
+					</p>
 				</ScrollAreaInner>
 			</ScrollArea>
 

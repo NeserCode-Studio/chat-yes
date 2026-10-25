@@ -1,4 +1,5 @@
 import { createPinia, setActivePinia } from "pinia"
+import { nextTick } from "vue"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createAgentProfile, createMemoryEntry } from "../src/features/chat/domain"
 import { useChatStore } from "../src/features/chat/store"
@@ -32,33 +33,39 @@ class MemoryStorage implements Storage {
 	}
 }
 
+function createPersistedConversation(): Conversation {
+	return {
+		id: "conversation-1",
+		title: "Interrupted session",
+		context: "",
+		participantIds: [],
+		mode: "roundtable",
+		roundLimit: 1,
+		requestLimit: 1,
+		tokenBudget: 1000,
+		status: "idle",
+		usage: {
+			promptTokens: 0,
+			completionTokens: 0,
+			totalTokens: 0,
+			requestCount: 0,
+			latencyMs: 0,
+		},
+		lastMessagePreview: "",
+		createdAt: 1,
+		updatedAt: 1,
+	}
+}
+
 describe("chat store recovery", () => {
 	beforeEach(() => {
 		vi.stubGlobal("localStorage", new MemoryStorage())
 	})
 
 	it("recovers streaming messages left by an interrupted run", async () => {
-		const conversationId = "conversation-1"
-		const conversation: Conversation = {
-			id: conversationId,
-			title: "Interrupted session",
-			participantIds: [],
-			mode: "roundtable",
-			roundLimit: 1,
-			requestLimit: 1,
-			tokenBudget: 1000,
-			status: "running",
-			usage: {
-				promptTokens: 0,
-				completionTokens: 0,
-				totalTokens: 0,
-				requestCount: 0,
-				latencyMs: 0,
-			},
-			lastMessagePreview: "",
-			createdAt: 1,
-			updatedAt: 1,
-		}
+		const conversation = createPersistedConversation()
+		const conversationId = conversation.id
+		conversation.status = "running"
 		const message: ChatMessage = {
 			id: "message-1",
 			conversationId,
@@ -93,6 +100,31 @@ describe("chat store recovery", () => {
 		).toEqual([{ ...message, status: "stopped" }])
 	})
 
+	it("migrates legacy conversations without context and persists edits", async () => {
+		const { context: _legacyContext, ...legacyConversation } =
+			createPersistedConversation()
+		localStorage.setItem(
+			"chat-yes.conversations.v1",
+			JSON.stringify([legacyConversation])
+		)
+
+		setActivePinia(createPinia())
+		const store = useChatStore()
+		await store.initialize()
+
+		expect(store.getConversation(legacyConversation.id)?.context).toBe("")
+
+		store.updateConversationSettings(legacyConversation.id, {
+			context: "  Shared context survives reloads.  ",
+		})
+		await nextTick()
+
+		const persisted = JSON.parse(
+			localStorage.getItem("chat-yes.conversations.v1") ?? "[]"
+		) as Conversation[]
+		expect(persisted[0].context).toBe("  Shared context survives reloads.  ")
+	})
+
 	it("normalizes conversation settings before they reach the orchestrator", async () => {
 		setActivePinia(createPinia())
 		const store = useChatStore()
@@ -102,6 +134,7 @@ describe("chat store recovery", () => {
 
 		store.updateConversationSettings(conversation.id, {
 			title: "  Normalized session  ",
+			context: "  Shared project constraints.  ",
 			mode: "relay",
 			roundLimit: 0,
 			requestLimit: 0,
@@ -110,10 +143,14 @@ describe("chat store recovery", () => {
 
 		const updated = store.getConversation(conversation.id)
 		expect(updated?.title).toBe("Normalized session")
+		expect(updated?.context).toBe("  Shared project constraints.  ")
 		expect(updated?.mode).toBe("relay")
 		expect(updated?.roundLimit).toBe(1)
 		expect(updated?.requestLimit).toBe(1)
 		expect(updated?.tokenBudget).toBe(1000)
+
+		store.updateConversationSettings(conversation.id, { mode: "parallel" })
+		expect(store.getConversation(conversation.id)?.mode).toBe("parallel")
 
 		store.updateConversationSettings(conversation.id, { requestLimit: 6 })
 		store.updateConversationSettings(conversation.id, { tokenBudget: 2000 })
